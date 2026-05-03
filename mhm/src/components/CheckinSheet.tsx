@@ -6,6 +6,7 @@ import { UserPlus, Trash2, Scan, CheckCircle2, AlertTriangle } from "lucide-reac
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { FormField, FormFieldSelect } from "@/components/shared/FormField";
+import PricingPreviewPanel from "@/components/PricingPreviewPanel";
 import { useAvailability } from "@/hooks/useAvailability";
 import { formatAppError } from "@/lib/appError";
 import { getRoomTypeLabel } from "@/lib/constants";
@@ -382,10 +383,11 @@ export default function CheckinSheet({ preSelectedRoomId }: { preSelectedRoomId?
                     <div className="grid grid-cols-2 gap-3">
                         {/* Room selector */}
                         <div>
-                            <label className="text-xs font-semibold text-brand-muted block mb-1.5 ml-1">
+                            <label htmlFor="room-select" className="text-xs font-semibold text-brand-muted block mb-1.5 ml-1">
                                 Phòng *
                             </label>
                             <select
+                                id="room-select"
                                 value={selectedRoom}
                                 onChange={(e) => setSelectedRoom(e.target.value)}
                                 className="w-full bg-slate-50 border border-slate-100 focus:border-brand-primary/50 focus:ring-2 focus:ring-brand-primary/20 rounded-xl px-3 py-2.5 text-brand-text text-sm font-medium outline-none transition-all"
@@ -444,7 +446,7 @@ export default function CheckinSheet({ preSelectedRoomId }: { preSelectedRoomId?
                         </div>
                     )}
 
-                    {/* Total price */}
+                    {/* Total price (legacy) */}
                     {selectedRoomData && (
                         <div className="bg-slate-50 rounded-xl p-3 flex justify-between items-center">
                             <span className="text-xs text-brand-muted font-medium">
@@ -455,6 +457,14 @@ export default function CheckinSheet({ preSelectedRoomId }: { preSelectedRoomId?
                             </span>
                         </div>
                     )}
+
+                    {/* Task 5.1 + 5.2: Real-time Pricing Engine Preview */}
+                    <PricingPreviewPanel
+                        roomType={selectedRoomData?.type ?? ""}
+                        nights={nights}
+                        occupants={guests.length}
+                        visible={!!selectedRoomData}
+                    />
 
                     {/* Submit */}
                     <Button
