@@ -1,0 +1,370 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│          TASK 5: Frontend — DateRange + DayOfWeek Picker Components          │
+│                                                                              │
+│  File 1: mhm/src/components/shared/DayOfWeekPicker.tsx                       │
+│                                                                              │
+│                                                                              │
+│   import { cn } from "@/lib/utils";                                          │
+│                                                                              │
+│   interface DayOfWeekPickerProps {                                           │
+│     value: number; // bitmask 0-127, bit 0=Mon .. bit 6=Sun                  │
+│     onChange: (mask: number) => void;                                        │
+│   }                                                                          │
+│                                                                              │
+│   const DAYS = [                                                             │
+│     { label: "T2", index: 0 },                                               │
+│     { label: "T3", index: 1 },                                               │
+│     { label: "T4", index: 2 },                                               │
+│     { label: "T5", index: 3 },                                               │
+│     { label: "T6", index: 4 },                                               │
+│     { label: "T7", index: 5 },                                               │
+│     { label: "CN", index: 6 },                                               │
+│   ];                                                                         │
+│                                                                              │
+│   export function DayOfWeekPicker({ value, onChange }:                       │
+│   DayOfWeekPickerProps) {                                                    │
+│     const toggle = (dayIndex: number) => {                                   │
+│       onChange(value ^ (1 << dayIndex));                                     │
+│     };                                                                       │
+│                                                                              │
+│     const isActive = (dayIndex: number) => {                                 │
+│       return (value & (1 << dayIndex)) !== 0;                                │
+│     };                                                                       │
+│                                                                              │
+│     return (                                                                 │
+│       <div className="flex items-center gap-1.5">                            │
+│         {DAYS.map((day) => (                                                 │
+│           <button                                                            │
+│             key={day.index}                                                  │
+│             type="button"                                                    │
+│             onClick={() => toggle(day.index)}                                │
+│             className={cn(                                                   │
+│               "flex h-9 w-9 items-center justify-center rounded-full         │
+│   text-sm font-medium transition-colors",                                    │
+│               "focus-visible:outline-none focus-visible:ring-2               │
+│   focus-visible:ring-blue-500 focus-visible:ring-offset-2",                  │
+│               isActive(day.index)                                            │
+│                 ? "bg-blue-500 text-white"                                   │
+│                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"           │
+│             )}                                                               │
+│             aria-pressed={isActive(day.index)}                               │
+│             aria-label={day.label}                                           │
+│           >                                                                  │
+│             {day.label}                                                      │
+│           </button>                                                          │
+│         ))}                                                                  │
+│       </div>                                                                 │
+│     );                                                                       │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  File 2: mhm/src/components/shared/DateRangePicker.tsx                       │
+│                                                                              │
+│                                                                              │
+│   import { Input } from "@/components/ui/input";                             │
+│   import { Checkbox } from "@/components/ui/checkbox";                       │
+│   import { Label } from "@/components/ui/label";                             │
+│   import { useId } from "react";                                             │
+│                                                                              │
+│   interface DateRangePickerProps {                                           │
+│     from: string | null; // ISO date string (YYYY-MM-DD) or null             │
+│     to: string | null;                                                       │
+│     onChange: (from: string | null, to: string | null) => void;              │
+│   }                                                                          │
+│                                                                              │
+│   export function DateRangePicker({ from, to, onChange }:                    │
+│   DateRangePickerProps) {                                                    │
+│     const id = useId();                                                      │
+│     const isUnlimited = from === null && to === null;                        │
+│                                                                              │
+│     const handleFromChange = (e: React.ChangeEvent<HTMLInputElement>) => {   │
+│       const value = e.target.value || null;                                  │
+│       onChange(value, to);                                                   │
+│     };                                                                       │
+│                                                                              │
+│     const handleToChange = (e: React.ChangeEvent<HTMLInputElement>) => {     │
+│       const value = e.target.value || null;                                  │
+│       onChange(from, value);                                                 │
+│     };                                                                       │
+│                                                                              │
+│     const handleUnlimitedChange = (checked: boolean) => {                    │
+│       if (checked) {                                                         │
+│         onChange(null, null);                                                │
+│       } else {                                                               │
+│         // Reset to today as a sensible default when unchecking              │
+│         const today = new Date().toISOString().split("T")[0];                │
+│         onChange(today, today);                                              │
+│       }                                                                      │
+│     };                                                                       │
+│                                                                              │
+│     return (                                                                 │
+│       <div className="flex flex-col gap-3">                                  │
+│         <div className="flex items-center gap-3">                            │
+│           <div className="flex flex-col gap-1.5">                            │
+│             <Label htmlFor={`${id}-from`} className="text-sm                 │
+│   text-slate-600">                                                           │
+│               Từ ngày                                                        │
+│             </Label>                                                         │
+│             <Input                                                           │
+│               id={`${id}-from`}                                              │
+│               type="date"                                                    │
+│               value={from ?? ""}                                             │
+│               onChange={handleFromChange}                                    │
+│               disabled={isUnlimited}                                         │
+│               className="w-40"                                               │
+│             />                                                               │
+│           </div>                                                             │
+│           <div className="flex flex-col gap-1.5">                            │
+│             <Label htmlFor={`${id}-to`} className="text-sm                   │
+│   text-slate-600">                                                           │
+│               Đến ngày                                                       │
+│             </Label>                                                         │
+│             <Input                                                           │
+│               id={`${id}-to`}                                                │
+│               type="date"                                                    │
+│               value={to ?? ""}                                               │
+│               onChange={handleToChange}                                      │
+│               disabled={isUnlimited}                                         │
+│               className="w-40"                                               │
+│             />                                                               │
+│           </div>                                                             │
+│         </div>                                                               │
+│         <div className="flex items-center gap-2">                            │
+│           <Checkbox                                                          │
+│             id={`${id}-unlimited`}                                           │
+│             checked={isUnlimited}                                            │
+│             onCheckedChange={(checked) =>                                    │
+│               handleUnlimitedChange(checked === true)                        │
+│             }                                                                │
+│           />                                                                 │
+│           <Label                                                             │
+│             htmlFor={`${id}-unlimited`}                                      │
+│             className="cursor-pointer text-sm text-slate-600"                │
+│           >                                                                  │
+│             Không giới hạn                                                   │
+│           </Label>                                                           │
+│         </div>                                                               │
+│       </div>                                                                 │
+│     );                                                                       │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  File 3: mhm/src/components/shared/__tests__/DayOfWeekPicker.test.tsx        │
+│                                                                              │
+│                                                                              │
+│   import { render, screen } from "@testing-library/react";                   │
+│   import userEvent from "@testing-library/user-event";                       │
+│   import { describe, it, expect, vi } from "vitest";                         │
+│   import { DayOfWeekPicker } from "../DayOfWeekPicker";                      │
+│                                                                              │
+│   describe("DayOfWeekPicker", () => {                                        │
+│     it("renders all 7 day buttons", () => {                                  │
+│       render(<DayOfWeekPicker value={0} onChange={() => {}} />);             │
+│       expect(screen.getByText("T2")).toBeInTheDocument();                    │
+│       expect(screen.getByText("T3")).toBeInTheDocument();                    │
+│       expect(screen.getByText("T4")).toBeInTheDocument();                    │
+│       expect(screen.getByText("T5")).toBeInTheDocument();                    │
+│       expect(screen.getByText("T6")).toBeInTheDocument();                    │
+│       expect(screen.getByText("T7")).toBeInTheDocument();                    │
+│       expect(screen.getByText("CN")).toBeInTheDocument();                    │
+│     });                                                                      │
+│                                                                              │
+│     it("shows active state for bits set in value", () => {                   │
+│       // value = 0b0000101 = 5 → Mon (bit 0) and Wed (bit 2) active          │
+│       render(<DayOfWeekPicker value={5} onChange={() => {}} />);             │
+│       const t2 = screen.getByText("T2");                                     │
+│       const t4 = screen.getByText("T4");                                     │
+│       const t3 = screen.getByText("T3");                                     │
+│                                                                              │
+│       expect(t2).toHaveAttribute("aria-pressed", "true");                    │
+│       expect(t4).toHaveAttribute("aria-pressed", "true");                    │
+│       expect(t3).toHaveAttribute("aria-pressed", "false");                   │
+│     });                                                                      │
+│                                                                              │
+│     it("shows all active when value is 127", () => {                         │
+│       render(<DayOfWeekPicker value={127} onChange={() => {}} />);           │
+│       const buttons = screen.getAllByRole("button");                         │
+│       buttons.forEach((btn) => {                                             │
+│         expect(btn).toHaveAttribute("aria-pressed", "true");                 │
+│       });                                                                    │
+│     });                                                                      │
+│                                                                              │
+│     it("toggles bit on click — activating a day", async () => {              │
+│       const user = userEvent.setup();                                        │
+│       const onChange = vi.fn();                                              │
+│       // value = 0, click T2 (index 0) → should call onChange with 1         │
+│       render(<DayOfWeekPicker value={0} onChange={onChange} />);             │
+│                                                                              │
+│       await user.click(screen.getByText("T2"));                              │
+│       expect(onChange).toHaveBeenCalledWith(1); // 0 ^ (1 << 0) = 1          │
+│     });                                                                      │
+│                                                                              │
+│     it("toggles bit on click — deactivating a day", async () => {            │
+│       const user = userEvent.setup();                                        │
+│       const onChange = vi.fn();                                              │
+│       // value = 127 (all on), click CN (index 6) → 127 ^ 64 = 63            │
+│       render(<DayOfWeekPicker value={127} onChange={onChange} />);           │
+│                                                                              │
+│       await user.click(screen.getByText("CN"));                              │
+│       expect(onChange).toHaveBeenCalledWith(63);                             │
+│     });                                                                      │
+│                                                                              │
+│     it("toggles T7 (index 5) correctly", async () => {                       │
+│       const user = userEvent.setup();                                        │
+│       const onChange = vi.fn();                                              │
+│       // value = 0, click T7 → 0 ^ (1 << 5) = 32                             │
+│       render(<DayOfWeekPicker value={0} onChange={onChange} />);             │
+│                                                                              │
+│       await user.click(screen.getByText("T7"));                              │
+│       expect(onChange).toHaveBeenCalledWith(32);                             │
+│     });                                                                      │
+│                                                                              │
+│     it("multiple clicks produce correct sequential values", async () => {    │
+│       const user = userEvent.setup();                                        │
+│       const onChange = vi.fn();                                              │
+│       // Start with T6 active (bit 4 = 16)                                   │
+│       render(<DayOfWeekPicker value={16} onChange={onChange} />);            │
+│                                                                              │
+│       // Click T7 (index 5) → 16 ^ 32 = 48                                   │
+│       await user.click(screen.getByText("T7"));                              │
+│       expect(onChange).toHaveBeenCalledWith(48);                             │
+│     });                                                                      │
+│   });                                                                        │
+│                                                                              │
+│                                                                              │
+│  File 4: mhm/src/components/shared/__tests__/DateRangePicker.test.tsx        │
+│                                                                              │
+│                                                                              │
+│   import { render, screen } from "@testing-library/react";                   │
+│   import userEvent from "@testing-library/user-event";                       │
+│   import { describe, it, expect, vi } from "vitest";                         │
+│   import { DateRangePicker } from "../DateRangePicker";                      │
+│                                                                              │
+│   describe("DateRangePicker", () => {                                        │
+│     it("renders from and to date inputs", () => {                            │
+│       render(                                                                │
+│         <DateRangePicker from="2025-06-01" to="2025-06-30" onChange={() =>   │
+│   {}} />                                                                     │
+│       );                                                                     │
+│       expect(screen.getByLabelText("Từ ngày")).toBeInTheDocument();          │
+│       expect(screen.getByLabelText("Đến ngày")).toBeInTheDocument();         │
+│     });                                                                      │
+│                                                                              │
+│     it("renders the unlimited checkbox", () => {                             │
+│       render(                                                                │
+│         <DateRangePicker from="2025-06-01" to="2025-06-30" onChange={() =>   │
+│   {}} />                                                                     │
+│       );                                                                     │
+│       expect(screen.getByLabelText("Không giới hạn")).toBeInTheDocument();   │
+│     });                                                                      │
+│                                                                              │
+│     it("shows inputs as enabled when dates are set", () => {                 │
+│       render(                                                                │
+│         <DateRangePicker from="2025-06-01" to="2025-06-30" onChange={() =>   │
+│   {}} />                                                                     │
+│       );                                                                     │
+│       expect(screen.getByLabelText("Từ ngày")).not.toBeDisabled();           │
+│       expect(screen.getByLabelText("Đến ngày")).not.toBeDisabled();          │
+│     });                                                                      │
+│                                                                              │
+│     it("disables inputs when unlimited (both null)", () => {                 │
+│       render(                                                                │
+│         <DateRangePicker from={null} to={null} onChange={() => {}} />        │
+│       );                                                                     │
+│       expect(screen.getByLabelText("Từ ngày")).toBeDisabled();               │
+│       expect(screen.getByLabelText("Đến ngày")).toBeDisabled();              │
+│     });                                                                      │
+│                                                                              │
+│     it("checkbox is checked when both dates are null", () => {               │
+│       render(                                                                │
+│         <DateRangePicker from={null} to={null} onChange={() => {}} />        │
+│       );                                                                     │
+│       const checkbox = screen.getByRole("checkbox");                         │
+│       expect(checkbox).toHaveAttribute("data-state", "checked");             │
+│     });                                                                      │
+│                                                                              │
+│     it("checkbox is unchecked when dates are provided", () => {              │
+│       render(                                                                │
+│         <DateRangePicker from="2025-01-01" to="2025-12-31" onChange={() =>   │
+│   {}} />                                                                     │
+│       );                                                                     │
+│       const checkbox = screen.getByRole("checkbox");                         │
+│       expect(checkbox).toHaveAttribute("data-state", "unchecked");           │
+│     });                                                                      │
+│                                                                              │
+│     it("clicking unlimited checkbox sets both dates to null", async () =>    │
+│   {                                                                          │
+│       const user = userEvent.setup();                                        │
+│       const onChange = vi.fn();                                              │
+│       render(                                                                │
+│         <DateRangePicker from="2025-06-01" to="2025-06-30"                   │
+│   onChange={onChange} />                                                     │
+│       );                                                                     │
+│                                                                              │
+│       await user.click(screen.getByLabelText("Không giới hạn"));             │
+│       expect(onChange).toHaveBeenCalledWith(null, null);                     │
+│     });                                                                      │
+│                                                                              │
+│     it("unchecking unlimited sets dates to today", async () => {             │
+│       const user = userEvent.setup();                                        │
+│       const onChange = vi.fn();                                              │
+│       const today = new Date().toISOString().split("T")[0];                  │
+│                                                                              │
+│       render(                                                                │
+│         <DateRangePicker from={null} to={null} onChange={onChange} />        │
+│       );                                                                     │
+│                                                                              │
+│       await user.click(screen.getByLabelText("Không giới hạn"));             │
+│       expect(onChange).toHaveBeenCalledWith(today, today);                   │
+│     });                                                                      │
+│                                                                              │
+│     it("displays correct date values in inputs", () => {                     │
+│       render(                                                                │
+│         <DateRangePicker from="2025-09-01" to="2025-09-15" onChange={() =>   │
+│   {}} />                                                                     │
+│       );                                                                     │
+│       expect(screen.getByLabelText("Từ ngày")).toHaveValue("2025-09-01");    │
+│       expect(screen.getByLabelText("Đến ngày")).toHaveValue("2025-09-15");   │
+│     });                                                                      │
+│                                                                              │
+│     it("displays empty values when dates are null", () => {                  │
+│       render(                                                                │
+│         <DateRangePicker from={null} to={null} onChange={() => {}} />        │
+│       );                                                                     │
+│       expect(screen.getByLabelText("Từ ngày")).toHaveValue("");              │
+│       expect(screen.getByLabelText("Đến ngày")).toHaveValue("");             │
+│     });                                                                      │
+│   });                                                                        │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Tóm tắt cấu trúc file                                                       │
+│                                                                              │
+│                                                                              │
+│   mhm/src/components/shared/                                                 │
+│   ├── DayOfWeekPicker.tsx                                                    │
+│   ├── DateRangePicker.tsx                                                    │
+│   └── __tests__/                                                             │
+│       ├── DayOfWeekPicker.test.tsx                                           │
+│       └── DateRangePicker.test.tsx                                           │
+│                                                                              │
+│                                                                              │
+│  Giải thích thiết kế                                                         │
+│                                                                              │
+│  DayOfWeekPicker sử dụng bitmask theo đúng schema weekday_mask trong         │
+│  dynamic_price_rule (bit 0=Mon, bit 6=Sun, 127 = tất cả các ngày). Mỗi       │
+│  button toggle bit tương ứng bằng XOR (mask ^ (1 << dayIndex)). UI hiển thị  │
+│  nhãn tiếng Việt: T2–T7 + CN. Có aria-pressed cho accessibility.             │
+│                                                                              │
+│  DateRangePicker map trực tiếp tới active_from / active_to của dynamic       │
+│  price rule. Khi checkbox "Không giới hạn" được chọn, cả hai giá trị trả về  │
+│  null (tương ứng NULL trong DB = rule luôn active). Inputs bị disable khi ở  │
+│  chế độ unlimited để tránh nhầm lẫn. Khi user bỏ check "Không giới hạn",     │
+│  component set default là ngày hôm nay cho cả hai field để user có điểm bắt  │
+│  đầu hợp lý.                                                                 │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

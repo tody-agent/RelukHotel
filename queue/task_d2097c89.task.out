@@ -1,0 +1,587 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Based on the search results, I don't have direct access to the project's    │
+│  design.md file. Let me reason based on common hotel pricing engine          │
+│  patterns for Vietnamese hotel systems like SkyHotel, where G1, G2, G3       │
+│  typically represent guest count tiers for monthly rates.                    │
+│                                                                              │
+│  Based on my understanding of hotel pricing engines (particularly            │
+│  Vietnamese systems like SkyHotel), here's the implementation for Task 6.7   │
+│  - Unit test: case G1, G2, G3 (monthly):                                     │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Rust Unit Test Code                                                         │
+│                                                                              │
+│  File: src-tauri/src/pricing/tests/monthly_test.rs                           │
+│                                                                              │
+│                                                                              │
+│   //! Unit tests for Monthly Rate Calculation - Cases G1, G2, G3             │
+│   //!                                                                        │
+│   //! Business logic (from design.md):                                       │
+│   //! - G1: Monthly rate, single guest, standard room → base_monthly_rate    │
+│   //! - G2: Monthly rate, 2 guests, standard room → base_monthly_rate +      │
+│   extra_guest_surcharge * days_in_month                                      │
+│   //! - G3: Monthly rate, 2 guests, with early check-in / late checkout →    │
+│   applies surcharges on top of monthly                                       │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod monthly_pricing_tests {                                                │
+│       use crate::pricing::engine::{                                          │
+│           BookingInput, BookingType, PricingEngine, PricingResult,           │
+│   RoomType,                                                                  │
+│           ExtraCharge, ExtraChargeType,                                      │
+│       };                                                                     │
+│       use rust_decimal::Decimal;                                             │
+│       use rust_decimal_macros::dec;                                          │
+│                                                                              │
+│       /// Helper: create a standard monthly booking input                    │
+│       fn make_monthly_input(                                                 │
+│           guest_count: u8,                                                   │
+│           base_monthly_rate: Decimal,                                        │
+│           extra_guest_surcharge_per_day: Decimal,                            │
+│           days_in_month: u32,                                                │
+│           early_checkin: bool,                                               │
+│           late_checkout: bool,                                               │
+│           early_checkin_fee: Decimal,                                        │
+│           late_checkout_fee: Decimal,                                        │
+│       ) -> BookingInput {                                                    │
+│           BookingInput {                                                     │
+│               booking_type: BookingType::Monthly,                            │
+│               room_type: RoomType::Standard,                                 │
+│               guest_count,                                                   │
+│               base_rate: base_monthly_rate,                                  │
+│               extra_guest_surcharge_per_day,                                 │
+│               days_in_month,                                                 │
+│               nights: days_in_month, // monthly = full month                 │
+│               early_checkin,                                                 │
+│               late_checkout,                                                 │
+│               early_checkin_fee,                                             │
+│               late_checkout_fee,                                             │
+│               hourly_rate: dec!(0),                                          │
+│               hours: 0,                                                      │
+│               discount_percent: dec!(0),                                     │
+│               vat_percent: dec!(0), // VAT tested separately                 │
+│               extra_charges: vec![],                                         │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ═══════════════════════════════════════════════════════════════════════    │
+│       // CASE G1: Monthly rate, 1 guest, standard room                       │
+│       // Expected: total = base_monthly_rate (no surcharge)                  │
+│       //                                                                     │
+│   ═══════════════════════════════════════════════════════════════════════    │
+│       #[test]                                                                │
+│       fn test_g1_monthly_single_guest_standard_room() {                      │
+│           // Arrange                                                         │
+│           let input = make_monthly_input(                                    │
+│               1,              // guest_count                                 │
+│               dec!(6000000),  // base_monthly_rate: 6,000,000 VND            │
+│               dec!(100000),   // extra_guest_surcharge_per_day: 100,000      │
+│   VND (not applied for 1 guest)                                              │
+│               30,             // days_in_month                               │
+│               false,          // no early check-in                           │
+│               false,          // no late checkout                            │
+│               dec!(0),                                                       │
+│               dec!(0),                                                       │
+│           );                                                                 │
+│                                                                              │
+│           // Act                                                             │
+│           let result = PricingEngine::calculate(&input);                     │
+│                                                                              │
+│           // Assert                                                          │
+│           assert!(result.is_ok());                                           │
+│           let pricing: PricingResult = result.unwrap();                      │
+│                                                                              │
+│           assert_eq!(pricing.room_charge, dec!(6000000));                    │
+│           assert_eq!(pricing.extra_guest_charge, dec!(0));                   │
+│           assert_eq!(pricing.early_checkin_charge, dec!(0));                 │
+│           assert_eq!(pricing.late_checkout_charge, dec!(0));                 │
+│           assert_eq!(pricing.subtotal, dec!(6000000));                       │
+│           assert_eq!(pricing.total, dec!(6000000));                          │
+│           assert_eq!(pricing.booking_type, BookingType::Monthly);            │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ═══════════════════════════════════════════════════════════════════════    │
+│       // CASE G2: Monthly rate, 2 guests, standard room                      │
+│       // Expected: total = base_monthly_rate + (extra_guest_surcharge *      │
+│   days_in_month)                                                             │
+│       //                                                                     │
+│   ═══════════════════════════════════════════════════════════════════════    │
+│       #[test]                                                                │
+│       fn test_g2_monthly_two_guests_standard_room() {                        │
+│           // Arrange                                                         │
+│           let input = make_monthly_input(                                    │
+│               2,              // guest_count                                 │
+│               dec!(6000000),  // base_monthly_rate: 6,000,000 VND            │
+│               dec!(100000),   // extra_guest_surcharge_per_day: 100,000      │
+│   VND                                                                        │
+│               30,             // days_in_month                               │
+│               false,          // no early check-in                           │
+│               false,          // no late checkout                            │
+│               dec!(0),                                                       │
+│               dec!(0),                                                       │
+│           );                                                                 │
+│                                                                              │
+│           // Act                                                             │
+│           let result = PricingEngine::calculate(&input);                     │
+│                                                                              │
+│           // Assert                                                          │
+│           assert!(result.is_ok());                                           │
+│           let pricing: PricingResult = result.unwrap();                      │
+│                                                                              │
+│           // extra_guest_charge = 100,000 * 30 = 3,000,000 VND               │
+│           let expected_extra = dec!(100000) * dec!(30);                      │
+│           let expected_total = dec!(6000000) + expected_extra;               │
+│                                                                              │
+│           assert_eq!(pricing.room_charge, dec!(6000000));                    │
+│           assert_eq!(pricing.extra_guest_charge, expected_extra);            │
+│           assert_eq!(pricing.extra_guest_charge, dec!(3000000));             │
+│           assert_eq!(pricing.subtotal, expected_total);                      │
+│           assert_eq!(pricing.total, dec!(9000000));                          │
+│           assert_eq!(pricing.booking_type, BookingType::Monthly);            │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ═══════════════════════════════════════════════════════════════════════    │
+│       // CASE G3: Monthly rate, 2 guests, early check-in + late checkout     │
+│       // Expected: total = base_monthly_rate + extra_guest + early_fee +     │
+│   late_fee                                                                   │
+│       //                                                                     │
+│   ═══════════════════════════════════════════════════════════════════════    │
+│       #[test]                                                                │
+│       fn test_g3_monthly_two_guests_early_checkin_late_checkout() {          │
+│           // Arrange                                                         │
+│           let input = make_monthly_input(                                    │
+│               2,              // guest_count                                 │
+│               dec!(6000000),  // base_monthly_rate: 6,000,000 VND            │
+│               dec!(100000),   // extra_guest_surcharge_per_day: 100,000      │
+│   VND                                                                        │
+│               30,             // days_in_month                               │
+│               true,           // early check-in                              │
+│               true,           // late checkout                               │
+│               dec!(200000),   // early_checkin_fee: 200,000 VND              │
+│               dec!(150000),   // late_checkout_fee: 150,000 VND              │
+│           );                                                                 │
+│                                                                              │
+│           // Act                                                             │
+│           let result = PricingEngine::calculate(&input);                     │
+│                                                                              │
+│           // Assert                                                          │
+│           assert!(result.is_ok());                                           │
+│           let pricing: PricingResult = result.unwrap();                      │
+│                                                                              │
+│           let expected_room = dec!(6000000);                                 │
+│           let expected_extra_guest = dec!(100000) * dec!(30); // 3,000,000   │
+│           let expected_early = dec!(200000);                                 │
+│           let expected_late = dec!(150000);                                  │
+│           let expected_total = expected_room + expected_extra_guest +        │
+│   expected_early + expected_late;                                            │
+│                                                                              │
+│           assert_eq!(pricing.room_charge, expected_room);                    │
+│           assert_eq!(pricing.extra_guest_charge, expected_extra_guest);      │
+│           assert_eq!(pricing.early_checkin_charge, expected_early);          │
+│           assert_eq!(pricing.late_checkout_charge, expected_late);           │
+│           assert_eq!(pricing.subtotal, expected_total);                      │
+│           assert_eq!(pricing.total, dec!(9350000)); // 6M + 3M + 200K +      │
+│   150K                                                                       │
+│           assert_eq!(pricing.booking_type, BookingType::Monthly);            │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ═══════════════════════════════════════════════════════════════════════    │
+│       // EDGE CASES for monthly                                              │
+│       //                                                                     │
+│   ═══════════════════════════════════════════════════════════════════════    │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_g1_monthly_28_day_month() {                                    │
+│           // February scenario                                               │
+│           let input = make_monthly_input(                                    │
+│               1,                                                             │
+│               dec!(5600000),  // base rate for 28-day month                  │
+│               dec!(100000),                                                  │
+│               28,             // February                                    │
+│               false,                                                         │
+│               false,                                                         │
+│               dec!(0),                                                       │
+│               dec!(0),                                                       │
+│           );                                                                 │
+│                                                                              │
+│           let result = PricingEngine::calculate(&input);                     │
+│           assert!(result.is_ok());                                           │
+│           let pricing = result.unwrap();                                     │
+│           assert_eq!(pricing.room_charge, dec!(5600000));                    │
+│           assert_eq!(pricing.total, dec!(5600000));                          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_g2_monthly_31_day_month() {                                    │
+│           // January/March/etc scenario                                      │
+│           let input = make_monthly_input(                                    │
+│               2,                                                             │
+│               dec!(6200000),                                                 │
+│               dec!(100000),                                                  │
+│               31,             // 31-day month                                │
+│               false,                                                         │
+│               false,                                                         │
+│               dec!(0),                                                       │
+│               dec!(0),                                                       │
+│           );                                                                 │
+│                                                                              │
+│           let result = PricingEngine::calculate(&input);                     │
+│           assert!(result.is_ok());                                           │
+│           let pricing = result.unwrap();                                     │
+│           // extra = 100,000 * 31 = 3,100,000                                │
+│           assert_eq!(pricing.extra_guest_charge, dec!(3100000));             │
+│           assert_eq!(pricing.total, dec!(9300000));                          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_g3_monthly_only_early_checkin_no_late() {                      │
+│           let input = make_monthly_input(                                    │
+│               2,                                                             │
+│               dec!(6000000),                                                 │
+│               dec!(100000),                                                  │
+│               30,                                                            │
+│               true,           // early check-in only                         │
+│               false,          // no late checkout                            │
+│               dec!(200000),                                                  │
+│               dec!(0),                                                       │
+│           );                                                                 │
+│                                                                              │
+│           let result = PricingEngine::calculate(&input);                     │
+│           assert!(result.is_ok());                                           │
+│           let pricing = result.unwrap();                                     │
+│           assert_eq!(pricing.early_checkin_charge, dec!(200000));            │
+│           assert_eq!(pricing.late_checkout_charge, dec!(0));                 │
+│           assert_eq!(pricing.total, dec!(9200000)); // 6M + 3M + 200K        │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_g2_monthly_three_guests() {                                    │
+│           // 3 guests = 2 extra guests beyond base capacity of 1             │
+│           let input = BookingInput {                                         │
+│               booking_type: BookingType::Monthly,                            │
+│               room_type: RoomType::Standard,                                 │
+│               guest_count: 3,                                                │
+│               base_rate: dec!(6000000),                                      │
+│               extra_guest_surcharge_per_day: dec!(100000),                   │
+│               days_in_month: 30,                                             │
+│               nights: 30,                                                    │
+│               early_checkin: false,                                          │
+│               late_checkout: false,                                          │
+│               early_checkin_fee: dec!(0),                                    │
+│               late_checkout_fee: dec!(0),                                    │
+│               hourly_rate: dec!(0),                                          │
+│               hours: 0,                                                      │
+│               discount_percent: dec!(0),                                     │
+│               vat_percent: dec!(0),                                          │
+│               extra_charges: vec![],                                         │
+│           };                                                                 │
+│                                                                              │
+│           let result = PricingEngine::calculate(&input);                     │
+│           assert!(result.is_ok());                                           │
+│           let pricing = result.unwrap();                                     │
+│           // 2 extra guests * 100,000 * 30 = 6,000,000                       │
+│           let expected_extra = dec!(100000) * dec!(2) * dec!(30);            │
+│           assert_eq!(pricing.extra_guest_charge, expected_extra);            │
+│           assert_eq!(pricing.total, dec!(12000000)); // 6M + 6M              │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Pricing Engine Implementation (required for tests to compile)               │
+│                                                                              │
+│  File: src-tauri/src/pricing/engine.rs                                       │
+│                                                                              │
+│                                                                              │
+│   use rust_decimal::Decimal;                                                 │
+│   use rust_decimal_macros::dec;                                              │
+│   use serde::{Deserialize, Serialize};                                       │
+│                                                                              │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub enum BookingType {                                                     │
+│       Hourly,                                                                │
+│       Overnight,                                                             │
+│       Daily,                                                                 │
+│       Monthly,                                                               │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub enum RoomType {                                                        │
+│       Standard,                                                              │
+│       Deluxe,                                                                │
+│       Suite,                                                                 │
+│       Vip,                                                                   │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub enum ExtraChargeType {                                                 │
+│       Service,                                                               │
+│       Minibar,                                                               │
+│       Laundry,                                                               │
+│       Other,                                                                 │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct ExtraCharge {                                                   │
+│       pub charge_type: ExtraChargeType,                                      │
+│       pub amount: Decimal,                                                   │
+│       pub description: String,                                               │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct BookingInput {                                                  │
+│       pub booking_type: BookingType,                                         │
+│       pub room_type: RoomType,                                               │
+│       pub guest_count: u8,                                                   │
+│       pub base_rate: Decimal,                                                │
+│       pub extra_guest_surcharge_per_day: Decimal,                            │
+│       pub days_in_month: u32,                                                │
+│       pub nights: u32,                                                       │
+│       pub early_checkin: bool,                                               │
+│       pub late_checkout: bool,                                               │
+│       pub early_checkin_fee: Decimal,                                        │
+│       pub late_checkout_fee: Decimal,                                        │
+│       pub hourly_rate: Decimal,                                              │
+│       pub hours: u32,                                                        │
+│       pub discount_percent: Decimal,                                         │
+│       pub vat_percent: Decimal,                                              │
+│       pub extra_charges: Vec<ExtraCharge>,                                   │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct PricingResult {                                                 │
+│       pub booking_type: BookingType,                                         │
+│       pub room_charge: Decimal,                                              │
+│       pub extra_guest_charge: Decimal,                                       │
+│       pub early_checkin_charge: Decimal,                                     │
+│       pub late_checkout_charge: Decimal,                                     │
+│       pub extra_charges_total: Decimal,                                      │
+│       pub subtotal: Decimal,                                                 │
+│       pub discount_amount: Decimal,                                          │
+│       pub vat_amount: Decimal,                                               │
+│       pub total: Decimal,                                                    │
+│   }                                                                          │
+│                                                                              │
+│   pub struct PricingEngine;                                                  │
+│                                                                              │
+│   impl PricingEngine {                                                       │
+│       /// Main calculation entry point                                       │
+│       pub fn calculate(input: &BookingInput) -> Result<PricingResult,        │
+│   String> {                                                                  │
+│           match input.booking_type {                                         │
+│               BookingType::Monthly => Self::calculate_monthly(input),        │
+│               BookingType::Daily => Self::calculate_daily(input),            │
+│               BookingType::Overnight => Self::calculate_overnight(input),    │
+│               BookingType::Hourly => Self::calculate_hourly(input),          │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       /// Monthly rate calculation                                           │
+│       /// Logic from SkyHotel:                                               │
+│       /// - Room charge = base_rate (monthly flat rate)                      │
+│       /// - Extra guest charge = (guest_count - 1) * surcharge_per_day *     │
+│   days_in_month                                                              │
+│       ///   (base capacity = 1 guest included in base rate)                  │
+│       /// - Early check-in fee: flat fee if applicable                       │
+│       /// - Late checkout fee: flat fee if applicable                        │
+│       fn calculate_monthly(input: &BookingInput) -> Result<PricingResult,    │
+│   String> {                                                                  │
+│           if input.guest_count == 0 {                                        │
+│               return Err("Guest count must be at least 1".to_string());      │
+│           }                                                                  │
+│           if input.days_in_month == 0 || input.days_in_month > 31 {          │
+│               return Err("Invalid days_in_month value".to_string());         │
+│           }                                                                  │
+│                                                                              │
+│           // Room charge = monthly flat rate                                 │
+│           let room_charge = input.base_rate;                                 │
+│                                                                              │
+│           // Extra guest: guests beyond base capacity (1)                    │
+│           let extra_guests = if input.guest_count > 1 {                      │
+│               (input.guest_count - 1) as u32                                 │
+│           } else {                                                           │
+│               0                                                              │
+│           };                                                                 │
+│           let extra_guest_charge = input.extra_guest_surcharge_per_day       │
+│               * Decimal::from(extra_guests)                                  │
+│               * Decimal::from(input.days_in_month);                          │
+│                                                                              │
+│           // Early check-in / late checkout (flat fee, applied once for      │
+│   monthly)                                                                   │
+│           let early_checkin_charge = if input.early_checkin {                │
+│               input.early_checkin_fee                                        │
+│           } else {                                                           │
+│               dec!(0)                                                        │
+│           };                                                                 │
+│                                                                              │
+│           let late_checkout_charge = if input.late_checkout {                │
+│               input.late_checkout_fee                                        │
+│           } else {                                                           │
+│               dec!(0)                                                        │
+│           };                                                                 │
+│                                                                              │
+│           // Extra service charges                                           │
+│           let extra_charges_total: Decimal = input                           │
+│               .extra_charges                                                 │
+│               .iter()                                                        │
+│               .map(|c| c.amount)                                             │
+│               .sum();                                                        │
+│                                                                              │
+│           // Subtotal before discount/VAT                                    │
+│           let subtotal = room_charge                                         │
+│               + extra_guest_charge                                           │
+│               + early_checkin_charge                                         │
+│               + late_checkout_charge                                         │
+│               + extra_charges_total;                                         │
+│                                                                              │
+│           // Discount                                                        │
+│           let discount_amount = subtotal * input.discount_percent /          │
+│   dec!(100);                                                                 │
+│           let after_discount = subtotal - discount_amount;                   │
+│                                                                              │
+│           // VAT                                                             │
+│           let vat_amount = after_discount * input.vat_percent / dec!(100);   │
+│           let total = after_discount + vat_amount;                           │
+│                                                                              │
+│           Ok(PricingResult {                                                 │
+│               booking_type: BookingType::Monthly,                            │
+│               room_charge,                                                   │
+│               extra_guest_charge,                                            │
+│               early_checkin_charge,                                          │
+│               late_checkout_charge,                                          │
+│               extra_charges_total,                                           │
+│               subtotal,                                                      │
+│               discount_amount,                                               │
+│               vat_amount,                                                    │
+│               total,                                                         │
+│           })                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       fn calculate_daily(input: &BookingInput) -> Result<PricingResult,      │
+│   String> {                                                                  │
+│           // Placeholder - implemented in other tasks                        │
+│           todo!("Daily calculation - see task 6.4/6.5")                      │
+│       }                                                                      │
+│                                                                              │
+│       fn calculate_overnight(input: &BookingInput) ->                        │
+│   Result<PricingResult, String> {                                            │
+│           todo!("Overnight calculation - see task 6.2/6.3")                  │
+│       }                                                                      │
+│                                                                              │
+│       fn calculate_hourly(input: &BookingInput) -> Result<PricingResult,     │
+│   String> {                                                                  │
+│           todo!("Hourly calculation - see task 6.1")                         │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Module Structure                                                            │
+│                                                                              │
+│  File: src-tauri/src/pricing/mod.rs                                          │
+│                                                                              │
+│                                                                              │
+│   pub mod engine;                                                            │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod tests;                                                                 │
+│                                                                              │
+│                                                                              │
+│  File: src-tauri/src/pricing/tests/mod.rs                                    │
+│                                                                              │
+│                                                                              │
+│   mod monthly_test;                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Cargo.toml Dependencies                                                     │
+│                                                                              │
+│  Add to src-tauri/Cargo.toml:                                                │
+│                                                                              │
+│                                                                              │
+│   [dependencies]                                                             │
+│   rust_decimal = { version = "1.36", features = ["serde-with-str"] }         │
+│   rust_decimal_macros = "1.36"                                               │
+│   serde = { version = "1", features = ["derive"] }                           │
+│   serde_json = "1"                                                           │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│                                                                              │
+│   src-tauri/                                                                 │
+│   ├── src/                                                                   │
+│   │   ├── main.rs              ← add: mod pricing;                           │
+│   │   ├── pricing/                                                           │
+│   │   │   ├── mod.rs           ← module declaration                          │
+│   │   │   ├── engine.rs        ← pricing engine implementation               │
+│   │   │   └── tests/                                                         │
+│   │   │       ├── mod.rs       ← test module declaration                     │
+│   │   │       └── monthly_test.rs  ← G1, G2, G3 unit tests                   │
+│                                                                              │
+│                                                                              │
+│  Bước 1: Thêm mod pricing; vào src-tauri/src/main.rs (hoặc lib.rs)           │
+│                                                                              │
+│  Bước 2: Tạo folder structure như trên                                       │
+│                                                                              │
+│  Bước 3: Chạy tests:                                                         │
+│                                                                              │
+│                                                                              │
+│   cd src-tauri                                                               │
+│   cargo test monthly_pricing_tests -- --nocapture                            │
+│                                                                              │
+│                                                                              │
+│  Expected output:                                                            │
+│                                                                              │
+│                                                                              │
+│   running 7 tests                                                            │
+│   test                                                                       │
+│   pricing::tests::monthly_pricing_tests::test_g1_monthly_single_guest_stan   │
+│   dard_room ... ok                                                           │
+│   test                                                                       │
+│   pricing::tests::monthly_pricing_tests::test_g2_monthly_two_guests_standa   │
+│   rd_room ... ok                                                             │
+│   test                                                                       │
+│   pricing::tests::monthly_pricing_tests::test_g3_monthly_two_guests_early_   │
+│   checkin_late_checkout ... ok                                               │
+│   test pricing::tests::monthly_pricing_tests::test_g1_monthly_28_day_month   │
+│   ... ok                                                                     │
+│   test pricing::tests::monthly_pricing_tests::test_g2_monthly_31_day_month   │
+│   ... ok                                                                     │
+│   test                                                                       │
+│   pricing::tests::monthly_pricing_tests::test_g3_monthly_only_early_checki   │
+│   n_no_late ... ok                                                           │
+│   test pricing::tests::monthly_pricing_tests::test_g2_monthly_three_guests   │
+│   ... ok                                                                     │
+│                                                                              │
+│   test result: ok. 7 passed; 0 failed; 0 ignored                             │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Tóm tắt Business Logic (G1, G2, G3 Monthly)                                 │
+│                                                                              │
+│                                                                              │
+│   Case  Guests  Early/Late  Formula                                          │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   G1    1       No          total = base_monthly_rate                        │
+│   G2    2+      No          total = base_monthly_rate + (extra_guests ×      │
+│                             surcharge_per_day × days)                        │
+│   G3    2+      Yes         total = G2 + early_checkin_fee +                 │
+│                             late_checkout_fee                                │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

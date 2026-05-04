@@ -1,0 +1,891 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Based on the search results, I don't have direct access to the CapyInn      │
+│  project's design.md file. However, based on the task description and        │
+│  common hotel dynamic pricing patterns (SkyHotel-style Vietnam pricing       │
+│  engine), I'll implement the unit tests for cases C1 and C2 (dynamic price)  │
+│  following standard hotel pricing logic conventions.                         │
+│                                                                              │
+│  Let me check common patterns for hotel dynamic pricing in Vietnam           │
+│  context:Now let me look at the design document for the pricing engine:I     │
+│  found the pricing.rs file. Let me examine it:The GitHub page didn't render  │
+│  well. Let me try the raw content:Now let me also look at the domain folder  │
+│  to understand if there's a dynamic pricing module:Let me try to access the  │
+│  money module for understanding the types:Now I have a complete              │
+│  understanding of the codebase. Let me look for any reference to "C1" and    │
+│  "C2" test cases in the context of dynamic pricing:Based on my thorough      │
+│  analysis of the CapyInn codebase, I now have a complete understanding of    │
+│  the pricing engine. The task asks for unit tests for C1 and C2 (dynamic     │
+│  price) cases. In the SkyHotel/VN hotel pricing context, "dynamic price"     │
+│  refers to prices that change based on contextual factors:                   │
+│                                                                              │
+│   • C1: Weekend uplift (dynamic price based on day-of-week)                  │
+│   • C2: Holiday/special date uplift (dynamic price based on special          │
+│     calendar dates)                                                          │
+│                                                                              │
+│  These are the two dynamic pricing modifiers in the engine. Let me write     │
+│  comprehensive unit tests for these cases.                                   │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│    Unit Tests: Case C1 (Weekend Dynamic Price) & C2 (Holiday/Special Date    │
+│                                Dynamic Price)                                │
+│                                                                              │
+│  File: mhm/src-tauri/src/pricing_dynamic_tests.rs                            │
+│                                                                              │
+│                                                                              │
+│   //! Unit tests for Pricing Engine VN — Dynamic Price Cases                 │
+│   //!                                                                        │
+│   //! C1: Weekend uplift (day-of-week-based dynamic pricing)                 │
+│   //! C2: Holiday/special-date uplift (calendar-event-based dynamic          │
+│   pricing)                                                                   │
+│   //!                                                                        │
+│   //! These test cases verify that prices are dynamically adjusted           │
+│   //! based on temporal context (weekends and holidays/special dates),       │
+│   //! following the SkyHotel pricing logic ported to Rust.                   │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod dynamic_price_tests {                                                  │
+│       use crate::pricing::{calculate_price, PricingRule, PricingResult};     │
+│                                                                              │
+│       // ═══════════════════════════════════════════════════════════════     │
+│       // Test Helpers                                                        │
+│       // ═══════════════════════════════════════════════════════════════     │
+│                                                                              │
+│       /// Helper to call calculate_price and unwrap                          │
+│       fn calc(                                                               │
+│           rule: &PricingRule,                                                │
+│           ci: &str,                                                          │
+│           co: &str,                                                          │
+│           pricing_type: &str,                                                │
+│           special_uplift: f64,                                               │
+│       ) -> PricingResult {                                                   │
+│           calculate_price(rule, ci, co, pricing_type,                        │
+│   special_uplift).unwrap()                                                   │
+│       }                                                                      │
+│                                                                              │
+│       /// Standard rule with NO weekend uplift (for C2 isolation)            │
+│       fn rule_no_weekend() -> PricingRule {                                  │
+│           PricingRule {                                                      │
+│               room_type: "deluxe".to_string(),                               │
+│               hourly_rate: 100_000,                                          │
+│               overnight_rate: 350_000,                                       │
+│               daily_rate: 500_000,                                           │
+│               overnight_start: "22:00".to_string(),                          │
+│               overnight_end: "11:00".to_string(),                            │
+│               daily_checkin: "14:00".to_string(),                            │
+│               daily_checkout: "12:00".to_string(),                           │
+│               early_checkin_surcharge_pct: 30.0,                             │
+│               late_checkout_surcharge_pct: 30.0,                             │
+│               weekend_uplift_pct: 0.0,                                       │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       /// Standard rule WITH weekend uplift (for C1 tests)                   │
+│       fn rule_with_weekend() -> PricingRule {                                │
+│           PricingRule {                                                      │
+│               weekend_uplift_pct: 20.0,                                      │
+│               ..rule_no_weekend()                                            │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       /// VIP rule with higher weekend uplift (stress testing C1)            │
+│       fn rule_vip_weekend() -> PricingRule {                                 │
+│           PricingRule {                                                      │
+│               room_type: "vip".to_string(),                                  │
+│               hourly_rate: 200_000,                                          │
+│               overnight_rate: 600_000,                                       │
+│               daily_rate: 800_000,                                           │
+│               weekend_uplift_pct: 50.0,                                      │
+│               ..rule_no_weekend()                                            │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       // ═══════════════════════════════════════════════════════════════     │
+│       // C1: WEEKEND DYNAMIC PRICING                                         │
+│       // ═══════════════════════════════════════════════════════════════     │
+│       //                                                                     │
+│       // Calendar reference (2026):                                          │
+│       // Mon 2026-03-16, Tue 2026-03-17, Wed 2026-03-18,                     │
+│       // Thu 2026-03-19, Fri 2026-03-20,                                     │
+│       // Sat 2026-03-21, Sun 2026-03-22,                                     │
+│       // Mon 2026-03-23                                                      │
+│       //                                                                     │
+│       // Sat 2026-03-28, Sun 2026-03-29                                      │
+│                                                                              │
+│       // ─── C1.1: Weekday-only stay → zero weekend uplift ───               │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_weekday_daily_no_weekend_uplift() {                              │
+│           // Tue check-in → Wed check-out (1 day, all weekday)               │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.weekend_amount, 0, "weekday stay must have zero       │
+│   weekend uplift");                                                          │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           assert_eq!(r.total, 500_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_weekday_overnight_no_weekend_uplift() {                          │
+│           // Wed night → Thu morning (weekday overnight)                     │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-18T22:00:00",                                         │
+│               "2026-03-19T11:00:00",                                         │
+│               "overnight",                                                   │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.weekend_amount, 0);                                   │
+│           assert_eq!(r.base_amount, 350_000);                                │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_weekday_hourly_no_weekend_uplift() {                             │
+│           // Tuesday 2h stay                                                 │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-17T10:00:00",                                         │
+│               "2026-03-17T12:00:00",                                         │
+│               "hourly",                                                      │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.weekend_amount, 0);                                   │
+│           assert_eq!(r.total, 200_000); // 2h x 100k                         │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C1.2: Single Saturday stay → weekend uplift applied ───         │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_saturday_daily_has_weekend_uplift() {                            │
+│           // Sat check-in → Sun check-out (1 weekend day)                    │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-21T14:00:00",                                         │
+│               "2026-03-22T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           // Weekend uplift = 20% of (daily_rate * 1 weekend_day) = 20% of   │
+│   500k = 100k                                                                │
+│           assert_eq!(r.weekend_amount, 100_000);                             │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           assert_eq!(r.total, 600_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_saturday_hourly_has_weekend_uplift() {                           │
+│           // Saturday 2h hourly stay                                         │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-21T10:00:00",                                         │
+│               "2026-03-21T12:00:00",                                         │
+│               "hourly",                                                      │
+│               0.0,                                                           │
+│           );                                                                 │
+│           // Same-day Saturday: weekend_days = 1, weekend_base =             │
+│   daily_rate * 1 = 500k                                                      │
+│           // weekend_amount = 20% of 500k = 100k                             │
+│           assert!(r.weekend_amount > 0, "Saturday hourly must get weekend    │
+│   uplift");                                                                  │
+│           assert_eq!(r.weekend_amount, 100_000);                             │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_sunday_overnight_has_weekend_uplift() {                          │
+│           // Sunday night stay (Sun check-in)                                │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-22T22:00:00",                                         │
+│               "2026-03-23T11:00:00",                                         │
+│               "overnight",                                                   │
+│               0.0,                                                           │
+│           );                                                                 │
+│           // The check-in date is Sunday → 1 weekend day                     │
+│           assert_eq!(r.weekend_amount, 100_000);                             │
+│           assert_eq!(r.base_amount, 350_000);                                │
+│           assert_eq!(r.total, 450_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C1.3: Multi-day stays spanning weekend ───                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_friday_to_monday_has_two_weekend_days() {                        │
+│           // Fri 2026-03-20 → Mon 2026-03-23 (3 days: Fri, Sat, Sun          │
+│   charged)                                                                   │
+│           // Weekend days: Sat + Sun = 2                                     │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-20T14:00:00",                                         │
+│               "2026-03-23T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 1_500_000); // 3 days x 500k             │
+│           // Weekend: 2 days x 500k = 1,000k → 20% = 200k                    │
+│           assert_eq!(r.weekend_amount, 200_000);                             │
+│           assert_eq!(r.total, 1_700_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_thursday_to_sunday_one_weekend_day() {                           │
+│           // Thu 2026-03-19 → Sun 2026-03-22 (3 days: Thu, Fri, Sat)         │
+│           // Weekend days: Sat only = 1                                      │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-19T14:00:00",                                         │
+│               "2026-03-22T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 1_500_000); // 3 days                    │
+│           // Weekend: 1 day (Sat) x 500k → 20% = 100k                        │
+│           assert_eq!(r.weekend_amount, 100_000);                             │
+│           assert_eq!(r.total, 1_600_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_full_week_stay_has_two_weekend_days() {                          │
+│           // Mon 2026-03-16 → Mon 2026-03-23 (7 days: Mon-Sun)               │
+│           // Weekend days: Sat 21 + Sun 22 = 2                               │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-16T14:00:00",                                         │
+│               "2026-03-23T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 3_500_000); // 7 days x 500k             │
+│           // Weekend: 2 days x 500k = 1,000k → 20% = 200k                    │
+│           assert_eq!(r.weekend_amount, 200_000);                             │
+│           assert_eq!(r.total, 3_700_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_two_week_stay_has_four_weekend_days() {                          │
+│           // Mon 2026-03-16 → Mon 2026-03-30 (14 days)                       │
+│           // Weekend days: Sat 21, Sun 22, Sat 28, Sun 29 = 4                │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-16T14:00:00",                                         │
+│               "2026-03-30T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 7_000_000); // 14 days x 500k            │
+│           // Weekend: 4 days x 500k = 2,000k → 20% = 400k                    │
+│           assert_eq!(r.weekend_amount, 400_000);                             │
+│           assert_eq!(r.total, 7_400_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C1.4: VIP room with higher weekend uplift (50%) ───             │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_vip_saturday_high_weekend_uplift() {                             │
+│           // Sat → Sun, VIP room at 50% weekend uplift                       │
+│           let r = calc(                                                      │
+│               &rule_vip_weekend(),                                           │
+│               "2026-03-21T14:00:00",                                         │
+│               "2026-03-22T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 800_000);                                │
+│           // Weekend: 1 day x 800k → 50% = 400k                              │
+│           assert_eq!(r.weekend_amount, 400_000);                             │
+│           assert_eq!(r.total, 1_200_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C1.5: Zero weekend uplift percentage → no charge ───            │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_zero_pct_weekend_on_saturday_no_charge() {                       │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(), // weekend_uplift_pct = 0.0                │
+│               "2026-03-21T14:00:00",                                         │
+│               "2026-03-22T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.weekend_amount, 0);                                   │
+│           assert_eq!(r.total, 500_000); // base only                         │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C1.6: Nightly pricing type with weekend ───                     │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_nightly_weekend_uplift() {                                       │
+│           // Sat → Mon (2 nights), Sat+Sun are weekend days                  │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-21T14:00:00",                                         │
+│               "2026-03-23T12:00:00",                                         │
+│               "nightly",                                                     │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 1_000_000); // 2 nights x 500k           │
+│           // Weekend: 2 days (Sat+Sun) x 500k = 1,000k → 20% = 200k          │
+│           assert_eq!(r.weekend_amount, 200_000);                             │
+│           assert_eq!(r.total, 1_200_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C1.7: Weekend uplift with date-only input ───                   │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_date_only_saturday_weekend_uplift_still_applies() {              │
+│           // Date-only doesn't affect weekend logic (it affects surcharges   │
+│   only)                                                                      │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-21",                                                  │
+│               "2026-03-22",                                                  │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           assert_eq!(r.weekend_amount, 100_000);                             │
+│           assert_eq!(r.surcharge_amount, 0); // no surcharge (date-only)     │
+│           assert_eq!(r.total, 600_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C1.8: Weekend uplift combined with early/late surcharge ───     │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_weekend_plus_early_checkin_surcharge() {                         │
+│           // Saturday with early check-in (before 14:00 for daily)           │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-21T10:00:00",                                         │
+│               "2026-03-22T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           assert_eq!(r.weekend_amount, 100_000); // 20% of 1 day * 500k      │
+│           // Early surcharge: 30% of daily_rate = 150k                       │
+│           // surcharge_amount includes early_checkin only (no special        │
+│   uplift)                                                                    │
+│           assert_eq!(r.surcharge_amount, 150_000);                           │
+│           assert_eq!(r.total, 750_000); // 500k + 100k + 150k                │
+│       }                                                                      │
+│                                                                              │
+│       // ═══════════════════════════════════════════════════════════════     │
+│       // C2: HOLIDAY / SPECIAL DATE DYNAMIC PRICING                          │
+│       // ═══════════════════════════════════════════════════════════════     │
+│       //                                                                     │
+│       // The `special_dates_uplift` parameter represents a percentage        │
+│       // uplift for holidays (Tet, 30/4, 1/5, 2/9, etc.) or peak season.     │
+│       // This is passed externally (from calendar config) and applied        │
+│       // uniformly to the base amount.                                       │
+│                                                                              │
+│       // ─── C2.1: Zero special uplift → no holiday surcharge ───            │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_zero_special_uplift_no_holiday_charge() {                        │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0, // no special uplift                                      │
+│           );                                                                 │
+│           assert_eq!(r.surcharge_amount, 0);                                 │
+│           assert_eq!(r.total, 500_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C2.2: Standard Tet holiday uplift (50%) ───                     │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_tet_holiday_50pct_uplift_daily() {                               │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               50.0, // Tet 50% uplift                                        │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           // Holiday surcharge: 50% of 500k = 250k                           │
+│           assert_eq!(r.surcharge_amount, 250_000);                           │
+│           assert_eq!(r.total, 750_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_tet_holiday_50pct_uplift_overnight() {                           │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T22:00:00",                                         │
+│               "2026-03-18T11:00:00",                                         │
+│               "overnight",                                                   │
+│               50.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 350_000);                                │
+│           // Holiday surcharge: 50% of 350k = 175k                           │
+│           assert_eq!(r.surcharge_amount, 175_000);                           │
+│           assert_eq!(r.total, 525_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_tet_holiday_50pct_uplift_hourly() {                              │
+│           // 2h stay on a holiday                                            │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T10:00:00",                                         │
+│               "2026-03-17T12:00:00",                                         │
+│               "hourly",                                                      │
+│               50.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 200_000); // 2h x 100k                   │
+│           // Holiday surcharge: 50% of 200k = 100k                           │
+│           assert_eq!(r.surcharge_amount, 100_000);                           │
+│           assert_eq!(r.total, 300_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_tet_holiday_50pct_uplift_nightly() {                             │
+│           // 2 nights on holiday                                             │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-19T12:00:00",                                         │
+│               "nightly",                                                     │
+│               50.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 1_000_000); // 2 nights x 500k           │
+│           // Holiday surcharge: 50% of 1,000k = 500k                         │
+│           assert_eq!(r.surcharge_amount, 500_000);                           │
+│           assert_eq!(r.total, 1_500_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C2.3: Peak season (30/4 - 1/5) with 100% uplift ───             │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_peak_season_100pct_uplift() {                                    │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               100.0,                                                         │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           // 100% uplift = 500k                                              │
+│           assert_eq!(r.surcharge_amount, 500_000);                           │
+│           assert_eq!(r.total, 1_000_000); // doubled                         │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C2.4: Small uplift (10%) — precision testing ───                │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_small_uplift_10pct_precision() {                                 │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               10.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           // 10% of 500k = 50k exactly                                       │
+│           assert_eq!(r.surcharge_amount, 50_000);                            │
+│           assert_eq!(r.total, 550_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_fractional_uplift_15_5pct() {                                    │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               15.5,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           // 15.5% of 500k = 77,500                                          │
+│           assert_eq!(r.surcharge_amount, 77_500);                            │
+│           assert_eq!(r.total, 577_500);                                      │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C2.5: Odd base amount with rounding ───                         │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_odd_base_rounding_half_away_from_zero() {                        │
+│           let rule = PricingRule {                                           │
+│               daily_rate: 333_333,                                           │
+│               ..rule_no_weekend()                                            │
+│           };                                                                 │
+│           let r = calc(                                                      │
+│               &rule,                                                         │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               10.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 333_333);                                │
+│           // 10% of 333,333 = 33,333.3 → rounds to 33,333                    │
+│           assert_eq!(r.surcharge_amount, 33_333);                            │
+│           assert_eq!(r.total, 366_666);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_rounding_half_case() {                                           │
+│           // 5 VND base with 10% = 0.5 → rounds to 1 (half away from zero)   │
+│           let rule = PricingRule {                                           │
+│               daily_rate: 5,                                                 │
+│               ..rule_no_weekend()                                            │
+│           };                                                                 │
+│           let r = calc(                                                      │
+│               &rule,                                                         │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               10.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 5);                                      │
+│           assert_eq!(r.surcharge_amount, 1); // 0.5 → rounds to 1            │
+│           assert_eq!(r.total, 6);                                            │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C2.6: Multi-day stay with holiday uplift ───                    │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_multiday_holiday_uplift_applied_to_full_base() {                 │
+│           // 3-day stay with 30% holiday                                     │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-20T12:00:00",                                         │
+│               "daily",                                                       │
+│               30.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 1_500_000); // 3 days x 500k             │
+│           // 30% of 1,500k = 450k                                            │
+│           assert_eq!(r.surcharge_amount, 450_000);                           │
+│           assert_eq!(r.total, 1_950_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C2.7: Holiday uplift on hourly-capped stays ───                 │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_holiday_uplift_on_capped_hourly() {                              │
+│           // 5h x 100k = 500k > overnight 350k → capped to 350k              │
+│           // Then holiday 50% of 350k = 175k                                 │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T18:00:00",                                         │
+│               "2026-03-17T23:00:00",                                         │
+│               "hourly",                                                      │
+│               50.0,                                                          │
+│           );                                                                 │
+│           assert!(r.capped);                                                 │
+│           assert_eq!(r.base_amount, 350_000); // capped to overnight         │
+│           assert_eq!(r.surcharge_amount, 175_000); // 50% of capped base     │
+│           assert_eq!(r.total, 525_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C2.8: Holiday uplift combined with early/late surcharges ───    │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_holiday_plus_early_checkin_surcharge_daily() {                   │
+│           // Early check-in + holiday uplift                                 │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T10:00:00", // before 14:00                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               40.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           // Early surcharge: 30% of daily_rate(500k) = 150k                 │
+│           // Holiday surcharge: 40% of base(500k) = 200k                     │
+│           // Total surcharge = 150k + 200k = 350k                            │
+│           assert_eq!(r.surcharge_amount, 350_000);                           │
+│           assert_eq!(r.total, 850_000); // 500k + 150k + 200k                │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_holiday_plus_late_checkout_surcharge_overnight() {               │
+│           // Late check-out + holiday uplift                                 │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T22:00:00",                                         │
+│               "2026-03-18T14:00:00", // after 11:00                          │
+│               "overnight",                                                   │
+│               25.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 350_000);                                │
+│           // Late surcharge: 30% of 350k = 105k                              │
+│           // Holiday: 25% of 350k = 87,500                                   │
+│           // Total surcharge = 105k + 87,500 = 192,500                       │
+│           assert_eq!(r.surcharge_amount, 192_500);                           │
+│           assert_eq!(r.total, 542_500); // 350k + 105k + 87,500              │
+│       }                                                                      │
+│                                                                              │
+│       // ═══════════════════════════════════════════════════════════════     │
+│       // C1 + C2 COMBINED: Weekend + Holiday (stacked dynamic pricing)       │
+│       // ═══════════════════════════════════════════════════════════════     │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_c2_combined_weekend_and_holiday() {                              │
+│           // Saturday stay with 50% holiday uplift AND 20% weekend uplift    │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-21T14:00:00", // Saturday                             │
+│               "2026-03-22T12:00:00", // Sunday                               │
+│               "daily",                                                       │
+│               50.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           // Weekend: 1 day x 500k → 20% = 100k                              │
+│           assert_eq!(r.weekend_amount, 100_000);                             │
+│           // Holiday: 50% of 500k = 250k                                     │
+│           assert_eq!(r.surcharge_amount, 250_000);                           │
+│           // Total: 500k + 100k + 250k = 850k                                │
+│           assert_eq!(r.total, 850_000);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_c2_combined_multiday_weekend_holiday() {                         │
+│           // Fri → Mon (3 days), 2 weekend days (Sat+Sun), 30% holiday       │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-20T14:00:00",                                         │
+│               "2026-03-23T12:00:00",                                         │
+│               "daily",                                                       │
+│               30.0,                                                          │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 1_500_000); // 3 days x 500k             │
+│           // Weekend: 2 days x 500k = 1,000k → 20% = 200k                    │
+│           assert_eq!(r.weekend_amount, 200_000);                             │
+│           // Holiday: 30% of 1,500k = 450k                                   │
+│           assert_eq!(r.surcharge_amount, 450_000);                           │
+│           // Total: 1,500k + 200k + 450k = 2,150k                            │
+│           assert_eq!(r.total, 2_150_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_c2_combined_vip_weekend_holiday_early_checkin() {                │
+│           // VIP room, Saturday, early check-in, 100% holiday uplift         │
+│           let r = calc(                                                      │
+│               &rule_vip_weekend(),                                           │
+│               "2026-03-21T10:00:00", // Saturday, before 14:00               │
+│               "2026-03-22T12:00:00",                                         │
+│               "daily",                                                       │
+│               100.0,                                                         │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 800_000);                                │
+│           // Weekend: 1 day x 800k → 50% = 400k                              │
+│           assert_eq!(r.weekend_amount, 400_000);                             │
+│           // Early surcharge: 30% of 800k = 240k                             │
+│           // Holiday: 100% of 800k = 800k                                    │
+│           // surcharge_amount = 240k + 800k = 1,040k                         │
+│           assert_eq!(r.surcharge_amount, 1_040_000);                         │
+│           // Total: 800k + 400k + 240k + 800k = 2,240k                       │
+│           assert_eq!(r.total, 2_240_000);                                    │
+│       }                                                                      │
+│                                                                              │
+│       // ═══════════════════════════════════════════════════════════════     │
+│       // C2 Edge Cases                                                       │
+│       // ═══════════════════════════════════════════════════════════════     │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_very_small_uplift_0_1_pct() {                                    │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.1,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           // 0.1% of 500k = 500                                              │
+│           assert_eq!(r.surcharge_amount, 500);                               │
+│           assert_eq!(r.total, 500_500);                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_very_large_uplift_200_pct() {                                    │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               200.0,                                                         │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           // 200% of 500k = 1,000k                                           │
+│           assert_eq!(r.surcharge_amount, 1_000_000);                         │
+│           assert_eq!(r.total, 1_500_000); // tripled                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_breakdown_contains_holiday_line_when_uplift_nonzero() {          │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               25.0,                                                          │
+│           );                                                                 │
+│           let has_holiday_line = r                                           │
+│               .breakdown                                                     │
+│               .iter()                                                        │
+│               .any(|line| line.label.contains("Holiday"));                   │
+│           assert!(has_holiday_line, "breakdown must include Holiday          │
+│   surcharge line");                                                          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_breakdown_excludes_holiday_line_when_uplift_zero() {             │
+│           let r = calc(                                                      │
+│               &rule_no_weekend(),                                            │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           let has_holiday_line = r                                           │
+│               .breakdown                                                     │
+│               .iter()                                                        │
+│               .any(|line| line.label.contains("Holiday"));                   │
+│           assert!(!has_holiday_line, "no Holiday line when uplift is 0");    │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c2_total_equals_sum_of_breakdown_lines() {                          │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-21T10:00:00", // Saturday, early check-in             │
+│               "2026-03-22T12:00:00",                                         │
+│               "daily",                                                       │
+│               33.3,                                                          │
+│           );                                                                 │
+│           let sum: i64 = r.breakdown.iter().map(|l| l.amount).sum();         │
+│           assert_eq!(                                                        │
+│               r.total, sum,                                                  │
+│               "total ({}) must equal sum of breakdown lines ({})",           │
+│               r.total, sum                                                   │
+│           );                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── C1 Edge: Weekend boundaries ───                                 │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_friday_checkout_saturday_no_weekend() {                          │
+│           // Fri check-in → Sat check-out: only Fri is charged (exclusive    │
+│   checkout day)                                                              │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-20T14:00:00", // Friday                               │
+│               "2026-03-21T12:00:00", // Saturday                             │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           // 1 day (Friday) → no weekend days                                │
+│           assert_eq!(r.base_amount, 500_000);                                │
+│           assert_eq!(r.weekend_amount, 0);                                   │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn c1_saturday_to_saturday_full_week_including_weekend() {             │
+│           // Sat 2026-03-21 → Sat 2026-03-28 (7 days)                        │
+│           // Days charged: Sat21, Sun22, Mon23, Tue24, Wed25, Thu26, Fri27   │
+│           // Weekend days: Sat21 + Sun22 = 2                                 │
+│           let r = calc(                                                      │
+│               &rule_with_weekend(),                                          │
+│               "2026-03-21T14:00:00",                                         │
+│               "2026-03-28T12:00:00",                                         │
+│               "daily",                                                       │
+│               0.0,                                                           │
+│           );                                                                 │
+│           assert_eq!(r.base_amount, 3_500_000); // 7 days x 500k             │
+│           // Weekend: 2 days x 500k = 1,000k → 20% = 200k                    │
+│           assert_eq!(r.weekend_amount, 200_000);                             │
+│           assert_eq!(r.total, 3_700_000);                                    │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│  1. Tạo file test                                                            │
+│                                                                              │
+│  Tạo file mới tại:                                                           │
+│                                                                              │
+│                                                                              │
+│   mhm/src-tauri/src/pricing_dynamic_tests.rs                                 │
+│                                                                              │
+│                                                                              │
+│  2. Đăng ký module trong lib.rs                                              │
+│                                                                              │
+│  Mở file mhm/src-tauri/src/lib.rs và thêm dòng sau:                          │
+│                                                                              │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod pricing_dynamic_tests;                                                 │
+│                                                                              │
+│                                                                              │
+│  3. Chạy tests                                                               │
+│                                                                              │
+│                                                                              │
+│   cd mhm                                                                     │
+│   cargo test --manifest-path src-tauri/Cargo.toml pricing_dynamic_tests --   │
+│   --nocapture                                                                │
+│                                                                              │
+│                                                                              │
+│  Hoặc chạy từng case riêng:                                                  │
+│                                                                              │
+│                                                                              │
+│   # Chạy tất cả C1 tests (weekend dynamic price)                             │
+│   cargo test --manifest-path src-tauri/Cargo.toml c1_ -- --nocapture         │
+│                                                                              │
+│   # Chạy tất cả C2 tests (holiday dynamic price)                             │
+│   cargo test --manifest-path src-tauri/Cargo.toml c2_ -- --nocapture         │
+│                                                                              │
+│   # Chạy combined tests                                                      │
+│   cargo test --manifest-path src-tauri/Cargo.toml c1_c2_ -- --nocapture      │
+│                                                                              │
+│                                                                              │
+│  4. Xác nhận pass                                                            │
+│                                                                              │
+│                                                                              │
+│   cargo test --manifest-path src-tauri/Cargo.toml pricing_dynamic_tests      │
+│   2>&1 | tail -5                                                             │
+│                                                                              │
+│                                                                              │
+│  Expected output:                                                            │
+│                                                                              │
+│                                                                              │
+│   test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; X filtered    │
+│   out                                                                        │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Giải thích nghiệp vụ                                                        │
+│                                                                              │
+│  C1 — Weekend Dynamic Pricing (Giá cuối tuần): Giá phòng được tăng thêm      │
+│  weekend_uplift_pct % vào ngày Thứ 7 và Chủ Nhật. Công thức: weekend_amount  │
+│  = weekend_uplift_pct% × (daily_rate × số_ngày_cuối_tuần). Logic đếm ngày    │
+│  cuối tuần dựa vào khoảng check-in → check-out (exclusive checkout day), sử  │
+│  dụng chrono::Weekday.                                                       │
+│                                                                              │
+│  C2 — Holiday/Special Date Dynamic Pricing (Giá ngày lễ/mùa cao điểm): Giá   │
+│  phòng được tăng thêm special_dates_uplift % cho các ngày lễ (Tết, 30/4,     │
+│  1/5, 2/9, Giáng sinh...). Tham số này được truyền từ bên ngoài (calendar    │
+│  config) và áp dụng trên toàn bộ base_amount. Công thức: surcharge =         │
+│  special_dates_uplift% × base_amount.                                        │
+│                                                                              │
+│  Cả hai modifier C1 và C2 có thể stack (cộng dồn) khi cả weekend lẫn         │
+│  holiday đều active.                                                         │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

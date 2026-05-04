@@ -1,0 +1,58 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│                                                                              │
+│   <!-- FILE: CHANGELOG.md -->                                                │
+│                                                                              │
+│   # Changelog                                                                │
+│                                                                              │
+│   All notable changes to this project will be documented in this file.       │
+│                                                                              │
+│   The format is based on [Keep a                                             │
+│   Changelog](https://keepachangelog.com/en/1.1.0/).                          │
+│                                                                              │
+│   ## [Unreleased]                                                            │
+│                                                                              │
+│   ### Added                                                                  │
+│   - Added Pricing Engine VN documentation entry covering the migration of    │
+│   SkyHotel pricing logic from application-layer JavaScript/TypeScript into   │
+│   a Rust core for Tauri 2.                                                   │
+│   - Added business-flow documentation for the VN pricing pipeline,           │
+│   including input normalization, occupancy-based pricing, surcharge          │
+│   application, discount sequencing, and final total aggregation.             │
+│   - Added implementation notes describing the backend boundary between       │
+│   React 19 UI state and Rust pricing commands exposed through Tauri 2.       │
+│   - Added traceability note referencing                                      │
+│   `openspec/changes/01-pricing-engine-vn/design.md` as the primary design    │
+│   source for the pricing-engine migration.                                   │
+│                                                                              │
+│   ### Changed                                                                │
+│   - Updated project documentation to reflect that pricing calculation        │
+│   responsibility is being centralized in Rust for deterministic execution,   │
+│   easier testing, and parity across flows.                                   │
+│   - Clarified that frontend screens should consume computed pricing          │
+│   results from the Rust engine instead of duplicating pricing formulas in    │
+│   React.                                                                     │
+│                                                                              │
+│   ### Docs                                                                   │
+│   - Added CHANGELOG entry for task `7.3 CHANGELOG entry` under Docs.         │
+│   - Documented the intent of Pricing Engine VN as a domain migration         │
+│   initiative rather than a pure UI change.                                   │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   <!-- HƯỚNG DẪN GẮN CODE -->                                                │
+│                                                                              │
+│   1. Mở file `CHANGELOG.md` ở root project.                                  │
+│   2. Nếu file chưa tồn tại, tạo mới và paste toàn bộ nội dung ở trên.        │
+│   3. Nếu file đã tồn tại theo format Keep a Changelog:                       │
+│      - Giữ nguyên phần header hiện có.                                       │
+│      - Thêm các mục bên dưới vào section `## [Unreleased]`.                  │
+│   4. Đảm bảo giữ reference:                                                  │
+│      - `openspec/changes/01-pricing-engine-vn/design.md`                     │
+│   5. Commit gợi ý:                                                           │
+│      - `docs(changelog): add Pricing Engine VN changelog entry`              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

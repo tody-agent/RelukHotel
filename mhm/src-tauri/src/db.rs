@@ -876,6 +876,122 @@ pub(crate) async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), sqlx::Erro
 
         restore_foreign_keys_after_v14_migration(&mut conn, migration_result).await?;
     }
+
+    // ── V15: Pricing Engine V2 ──
+    if current < 15 {
+        let mut tx = pool.begin().await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS rate_plan (
+                id            TEXT PRIMARY KEY,
+                property_id   TEXT NOT NULL,
+                room_type_id  TEXT NOT NULL,
+                name          TEXT NOT NULL,
+                is_default    INTEGER NOT NULL DEFAULT 0,
+                currency      TEXT NOT NULL DEFAULT 'VND',
+                capacity      INTEGER NOT NULL,
+                night_rate            INTEGER,
+                overnight_rate        INTEGER,
+                overnight_start_hour  INTEGER NOT NULL DEFAULT 21,
+                monthly_rate          INTEGER,
+                monthly_residual_mode TEXT CHECK(monthly_residual_mode IN ('per_day','full_month')),
+                hourly_steps_json     TEXT,
+                hourly_max_hours      INTEGER,
+                early_checkin_day_json   TEXT,
+                early_checkin_night_json TEXT,
+                late_checkout_day_json   TEXT,
+                late_checkout_night_json TEXT,
+                extra_bed_per_person  INTEGER NOT NULL DEFAULT 0,
+                rounding_minutes     INTEGER NOT NULL DEFAULT 60,
+                intraday_mode        TEXT NOT NULL DEFAULT 'default' CHECK(intraday_mode IN ('default','split_surcharge','always_one_night')),
+                notes                TEXT,
+                overnight_start_minute INTEGER NOT NULL DEFAULT 0,
+                overnight_end_hour    INTEGER NOT NULL DEFAULT 6,
+                overnight_end_minute  INTEGER NOT NULL DEFAULT 0,
+                overnight_checkout_hour INTEGER NOT NULL DEFAULT 12,
+                standard_checkin_hour INTEGER NOT NULL DEFAULT 14,
+                standard_checkout_hour INTEGER NOT NULL DEFAULT 12,
+                auto_overnight_checkin_hour INTEGER NOT NULL DEFAULT 22,
+                auto_overnight_checkin_minute INTEGER NOT NULL DEFAULT 0,
+                auto_overnight_checkout_hour INTEGER NOT NULL DEFAULT 3,
+                auto_overnight_checkout_minute INTEGER NOT NULL DEFAULT 0,
+                auto_compare_price    INTEGER NOT NULL DEFAULT 1,
+                auto_prefer_daily_over_overnight INTEGER NOT NULL DEFAULT 1,
+                surcharge_threshold_minutes INTEGER NOT NULL DEFAULT 15,
+                created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (room_type_id) REFERENCES room_types(id)
+            )"
+        ).execute(&mut *tx).await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS dynamic_price_rule (
+                id           TEXT PRIMARY KEY,
+                property_id  TEXT NOT NULL,
+                name         TEXT NOT NULL,
+                applies_to   TEXT NOT NULL CHECK(applies_to IN (
+                                'night','overnight','hourly',
+                                'late_day','late_night','early_day','early_night')),
+                strategy     TEXT NOT NULL CHECK(strategy IN ('replace','add')),
+                weekday_mask INTEGER NOT NULL DEFAULT 127,
+                specific_dates_json TEXT,
+                hour_start   INTEGER,
+                hour_end     INTEGER,
+                active_from  TEXT,
+                active_to    TEXT,
+                enabled      INTEGER NOT NULL DEFAULT 1,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            )"
+        ).execute(&mut *tx).await?;
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS dynamic_price_rule_value (
+                rule_id      TEXT NOT NULL,
+                room_type_id TEXT NOT NULL,
+                value        INTEGER NOT NULL,
+                PRIMARY KEY (rule_id, room_type_id),
+                FOREIGN KEY (rule_id) REFERENCES dynamic_price_rule(id) ON DELETE CASCADE
+            )"
+        ).execute(&mut *tx).await?;
+
+        // Modify bookings table
+        execute_compat_alter(&mut tx, "ALTER TABLE bookings ADD COLUMN rate_plan_id TEXT REFERENCES rate_plan(id)").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE bookings ADD COLUMN rate_plan_override_json TEXT").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE bookings ADD COLUMN occupants INTEGER NOT NULL DEFAULT 1").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE bookings ADD COLUMN locked_pricing_at TEXT").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE bookings ADD COLUMN locked_total INTEGER").await?;
+
+        // Run data migration script for 1.2
+        crate::money_migration::migrate_pricing_rules_to_rate_plan(&mut tx).await?;
+
+        set_schema_version(&mut tx, 15).await?;
+        tx.commit().await?;
+    }
+
+    // V15+ compat: add rounding & intraday columns (idempotent)
+    {
+        let mut tx = pool.begin().await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN rounding_minutes INTEGER NOT NULL DEFAULT 60").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN intraday_mode TEXT NOT NULL DEFAULT 'default'").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN notes TEXT").await?;
+        
+        // Auto-config variables
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN overnight_start_minute INTEGER NOT NULL DEFAULT 0").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN overnight_end_hour INTEGER NOT NULL DEFAULT 6").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN overnight_end_minute INTEGER NOT NULL DEFAULT 0").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN overnight_checkout_hour INTEGER NOT NULL DEFAULT 12").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN standard_checkin_hour INTEGER NOT NULL DEFAULT 14").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN standard_checkout_hour INTEGER NOT NULL DEFAULT 12").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN auto_overnight_checkin_hour INTEGER NOT NULL DEFAULT 22").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN auto_overnight_checkin_minute INTEGER NOT NULL DEFAULT 0").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN auto_overnight_checkout_hour INTEGER NOT NULL DEFAULT 3").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN auto_overnight_checkout_minute INTEGER NOT NULL DEFAULT 0").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN auto_compare_price INTEGER NOT NULL DEFAULT 1").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN auto_prefer_daily_over_overnight INTEGER NOT NULL DEFAULT 1").await?;
+        execute_compat_alter(&mut tx, "ALTER TABLE rate_plan ADD COLUMN surcharge_threshold_minutes INTEGER NOT NULL DEFAULT 15").await?;
+        
+        tx.commit().await?;
+    }
     Ok(())
 }
 
@@ -1105,6 +1221,23 @@ mod tests {
 
     async fn create_legacy_billing_tables_for_partial_upgrade(pool: &SqlitePool) {
         sqlx::query(
+            "CREATE TABLE bookings (
+                id TEXT PRIMARY KEY,
+                room_id TEXT,
+                primary_guest_id TEXT,
+                check_in_at TEXT,
+                expected_checkout TEXT,
+                nights INTEGER,
+                total_price REAL,
+                status TEXT,
+                created_at TEXT
+            )",
+        )
+        .execute(pool)
+        .await
+        .expect("creates legacy bookings table");
+
+        sqlx::query(
             "CREATE TABLE transactions (
                 id          TEXT PRIMARY KEY,
                 booking_id  TEXT NOT NULL,
@@ -1148,7 +1281,7 @@ mod tests {
             .expect("reads final schema version")
             .get("version");
 
-        assert_eq!(version, 14);
+        assert_eq!(version, 15);
     }
 
     #[tokio::test]
@@ -1164,7 +1297,7 @@ mod tests {
             .expect("reads version")
             .get("version");
 
-        assert_eq!(version, 14);
+        assert_eq!(version, 15);
         assert_money_columns_are_integer(&pool).await;
     }
 
@@ -1452,7 +1585,7 @@ mod tests {
             .expect("reads final schema version")
             .get("version");
 
-        assert_eq!(version, 14);
+        assert_eq!(version, 15);
     }
 
     #[tokio::test]
@@ -1519,7 +1652,7 @@ mod tests {
             .expect("reads final schema version")
             .get("version");
 
-        assert_eq!(version, 14);
+        assert_eq!(version, 15);
     }
 
     #[tokio::test]

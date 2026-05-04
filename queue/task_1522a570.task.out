@@ -1,0 +1,63 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│                                                                              │
+│   ## Key features                                                            │
+│                                                                              │
+│   ### Pricing                                                                │
+│                                                                              │
+│   - **Rust pricing engine (VN)**: Core pricing logic is being migrated       │
+│   from SkyHotel into Rust for deterministic, fast, and testable              │
+│   calculation flows.                                                         │
+│   - **Vietnam-specific business rules**: Supports VN-oriented pricing        │
+│   workflows and lays the foundation for localized pricing behavior.          │
+│   - **Tauri 2 backend integration**: Pricing computation can run natively    │
+│   in the Rust layer and be exposed cleanly to the React 19 frontend.         │
+│   - **Improved maintainability**: Centralizes pricing rules into a           │
+│   strongly typed backend module instead of spreading logic across UI code.   │
+│   - **Future-ready architecture**: Designed to support extension for         │
+│   taxes, surcharges, discounts, room policies, and other pricing rules.      │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   ### Pricing                                                                │
+│   Pricing Engine VN is the effort to port SkyHotel’s pricing logic into      │
+│   Rust.                                                                      │
+│   This enables a more reliable and maintainable backend pricing pipeline     │
+│   for the Tauri 2 + React 19 application, with better performance,           │
+│   stronger typing, and clearer separation between UI and business rules.     │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   # Hướng dẫn gắn code                                                       │
+│                                                                              │
+│   # 1) Mở file README.md ở root project.                                     │
+│   # 2) Tìm section: "## Key features"                                        │
+│   # 3) Thêm block sau vào dưới "## Key features" hoặc thay thế mục           │
+│   "Pricing" hiện tại nếu đã có:                                              │
+│                                                                              │
+│   ### Pricing                                                                │
+│                                                                              │
+│   - **Rust pricing engine (VN)**: Core pricing logic is being migrated       │
+│   from SkyHotel into Rust for deterministic, fast, and testable              │
+│   calculation flows.                                                         │
+│   - **Vietnam-specific business rules**: Supports VN-oriented pricing        │
+│   workflows and lays the foundation for localized pricing behavior.          │
+│   - **Tauri 2 backend integration**: Pricing computation can run natively    │
+│   in the Rust layer and be exposed cleanly to the React 19 frontend.         │
+│   - **Improved maintainability**: Centralizes pricing rules into a           │
+│   strongly typed backend module instead of spreading logic across UI code.   │
+│   - **Future-ready architecture**: Designed to support extension for         │
+│   taxes, surcharges, discounts, room policies, and other pricing rules.      │
+│                                                                              │
+│   # 4) Nếu README có đoạn mô tả ngắn cho feature, dùng thêm đoạn này:        │
+│                                                                              │
+│   Pricing Engine VN is the effort to port SkyHotel’s pricing logic into      │
+│   Rust.                                                                      │
+│   This enables a more reliable and maintainable backend pricing pipeline     │
+│   for the Tauri 2 + React 19 application, with better performance,           │
+│   stronger typing, and clearer separation between UI and business rules.     │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

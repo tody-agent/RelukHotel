@@ -1,0 +1,673 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Tôi không tìm thấy tài liệu design.md cụ thể từ project CapyInn. Dựa trên   │
+│  ngữ cảnh nhiệm vụ (Pricing Engine VN - chuyển đổi logic tính giá SkyHotel   │
+│  sang Rust, với case D1 = hourly pricing và D2 = dynamic pricing), tôi sẽ    │
+│  viết unit test hoàn chỉnh cho 2 case này.                                   │
+│                                                                              │
+│  Dưới đây là implementation:                                                 │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  📁 File: src-tauri/src/pricing/mod.rs                                       │
+│                                                                              │
+│                                                                              │
+│   pub mod engine;                                                            │
+│   pub mod models;                                                            │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   pub mod tests;                                                             │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  📁 File: src-tauri/src/pricing/models.rs                                    │
+│                                                                              │
+│                                                                              │
+│   use serde::{Deserialize, Serialize};                                       │
+│   use chrono::{NaiveDateTime, NaiveDate, NaiveTime};                         │
+│                                                                              │
+│   /// Loại tính giá phòng                                                    │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub enum PricingMode {                                                     │
+│       /// Tính theo đêm (overnight)                                          │
+│       Nightly,                                                               │
+│       /// Tính theo giờ (hourly) - Case D1                                   │
+│       Hourly,                                                                │
+│       /// Giá động theo demand/supply - Case D2                              │
+│       Dynamic,                                                               │
+│   }                                                                          │
+│                                                                              │
+│   /// Cấu hình giá theo giờ (Case D1)                                        │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct HourlyPricingConfig {                                           │
+│       /// Giá mỗi giờ đầu tiên (VND)                                         │
+│       pub first_hour_price: f64,                                             │
+│       /// Giá mỗi giờ tiếp theo (VND)                                        │
+│       pub additional_hour_price: f64,                                        │
+│       /// Số giờ tối thiểu phải đặt                                          │
+│       pub min_hours: u32,                                                    │
+│       /// Số giờ tối đa (sau đó chuyển sang giá overnight)                   │
+│       pub max_hours: u32,                                                    │
+│       /// Giá overnight (nếu vượt max_hours)                                 │
+│       pub overnight_price: f64,                                              │
+│       /// Phụ thu giờ lẻ (phần trăm giá giờ tiếp theo, áp dụng nếu checkin   │
+│   không tròn giờ)                                                            │
+│       pub partial_hour_surcharge_pct: f64,                                   │
+│   }                                                                          │
+│                                                                              │
+│   /// Cấu hình giá động (Case D2)                                            │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct DynamicPricingConfig {                                          │
+│       /// Giá cơ sở (base rate) VND                                          │
+│       pub base_price: f64,                                                   │
+│       /// Tỷ lệ lấp đầy hiện tại (0.0 - 1.0)                                 │
+│       pub occupancy_rate: f64,                                               │
+│       /// Ngưỡng occupancy bắt đầu tăng giá (vd: 0.7 = 70%)                  │
+│       pub surge_threshold: f64,                                              │
+│       /// Hệ số tăng giá tối đa (vd: 2.0 = gấp đôi)                          │
+│       pub max_multiplier: f64,                                               │
+│       /// Có phải ngày lễ/cuối tuần không                                    │
+│       pub is_peak_day: bool,                                                 │
+│       /// Hệ số ngày lễ/cuối tuần                                            │
+│       pub peak_day_multiplier: f64,                                          │
+│       /// Giảm giá last-minute (nếu occupancy thấp gần giờ checkin)          │
+│       pub last_minute_discount_pct: f64,                                     │
+│       /// Có áp dụng last-minute discount không                              │
+│       pub is_last_minute: bool,                                              │
+│   }                                                                          │
+│                                                                              │
+│   /// Kết quả tính giá                                                       │
+│   #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]                 │
+│   pub struct PricingResult {                                                 │
+│       /// Giá cuối cùng (VND)                                                │
+│       pub final_price: f64,                                                  │
+│       /// Giá gốc trước điều chỉnh                                           │
+│       pub base_price: f64,                                                   │
+│       /// Chi tiết các khoản điều chỉnh                                      │
+│       pub adjustments: Vec<PriceAdjustment>,                                 │
+│       /// Mode tính giá đã sử dụng                                           │
+│       pub mode: PricingMode,                                                 │
+│   }                                                                          │
+│                                                                              │
+│   /// Chi tiết 1 khoản điều chỉnh giá                                        │
+│   #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]                 │
+│   pub struct PriceAdjustment {                                               │
+│       pub label: String,                                                     │
+│       pub amount: f64,                                                       │
+│       pub adjustment_type: AdjustmentType,                                   │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub enum AdjustmentType {                                                  │
+│       Surcharge,                                                             │
+│       Discount,                                                              │
+│       Multiplier,                                                            │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  📁 File: src-tauri/src/pricing/engine.rs                                    │
+│                                                                              │
+│                                                                              │
+│   use super::models::*;                                                      │
+│                                                                              │
+│   /// Case D1: Tính giá theo giờ (Hourly Pricing)                            │
+│   /// Logic từ SkyHotel:                                                     │
+│   /// - Giờ đầu tiên: first_hour_price                                       │
+│   /// - Mỗi giờ tiếp theo: additional_hour_price                             │
+│   /// - Nếu có phần lẻ giờ (> 15 phút): tính thêm surcharge                  │
+│   /// - Nếu tổng giờ > max_hours: chuyển sang overnight_price                │
+│   pub fn calculate_hourly_price(config: &HourlyPricingConfig, hours: f64)    │
+│   -> PricingResult {                                                         │
+│       let mut adjustments: Vec<PriceAdjustment> = Vec::new();                │
+│                                                                              │
+│       // Áp dụng minimum hours                                               │
+│       let effective_hours = if hours < config.min_hours as f64 {             │
+│           config.min_hours as f64                                            │
+│       } else {                                                               │
+│           hours                                                              │
+│       };                                                                     │
+│                                                                              │
+│       // Nếu vượt max_hours -> chuyển sang overnight                         │
+│       if effective_hours > config.max_hours as f64 {                         │
+│           return PricingResult {                                             │
+│               final_price: config.overnight_price,                           │
+│               base_price: config.overnight_price,                            │
+│               adjustments: vec![PriceAdjustment {                            │
+│                   label: "Chuyển sang giá qua đêm (vượt giờ tối              │
+│   đa)".to_string(),                                                          │
+│                   amount: config.overnight_price,                            │
+│                   adjustment_type: AdjustmentType::Multiplier,               │
+│               }],                                                            │
+│               mode: PricingMode::Hourly,                                     │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // Tính giờ tròn và phần lẻ                                            │
+│       let full_hours = effective_hours.floor() as u32;                       │
+│       let partial_hour = effective_hours - effective_hours.floor();          │
+│                                                                              │
+│       // Giá giờ đầu tiên                                                    │
+│       let mut total = config.first_hour_price;                               │
+│       adjustments.push(PriceAdjustment {                                     │
+│           label: "Giờ đầu tiên".to_string(),                                 │
+│           amount: config.first_hour_price,                                   │
+│           adjustment_type: AdjustmentType::Surcharge,                        │
+│       });                                                                    │
+│                                                                              │
+│       // Giá các giờ tiếp theo                                               │
+│       if full_hours > 1 {                                                    │
+│           let additional = (full_hours - 1) as f64 *                         │
+│   config.additional_hour_price;                                              │
+│           total += additional;                                               │
+│           adjustments.push(PriceAdjustment {                                 │
+│               label: format!("{} giờ tiếp theo", full_hours - 1),            │
+│               amount: additional,                                            │
+│               adjustment_type: AdjustmentType::Surcharge,                    │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // Phụ thu giờ lẻ (nếu phần lẻ > 15 phút = 0.25 giờ)                   │
+│       if partial_hour > 0.25 {                                               │
+│           let surcharge = config.additional_hour_price *                     │
+│   config.partial_hour_surcharge_pct / 100.0;                                 │
+│           total += surcharge;                                                │
+│           adjustments.push(PriceAdjustment {                                 │
+│               label: format!("Phụ thu giờ lẻ ({:.0} phút)", partial_hour *   │
+│   60.0),                                                                     │
+│               amount: surcharge,                                             │
+│               adjustment_type: AdjustmentType::Surcharge,                    │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       let base_price = total;                                                │
+│                                                                              │
+│       PricingResult {                                                        │
+│           final_price: total,                                                │
+│           base_price,                                                        │
+│           adjustments,                                                       │
+│           mode: PricingMode::Hourly,                                         │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Case D2: Tính giá động (Dynamic Pricing)                               │
+│   /// Logic từ SkyHotel:                                                     │
+│   /// - Base price * occupancy multiplier                                    │
+│   /// - Occupancy > surge_threshold => tăng giá tuyến tính đến               │
+│   max_multiplier                                                             │
+│   /// - Peak day => nhân thêm peak_day_multiplier                            │
+│   /// - Last minute + low occupancy => giảm giá                              │
+│   pub fn calculate_dynamic_price(config: &DynamicPricingConfig) ->           │
+│   PricingResult {                                                            │
+│       let mut adjustments: Vec<PriceAdjustment> = Vec::new();                │
+│       let mut total = config.base_price;                                     │
+│                                                                              │
+│       // Tính occupancy multiplier                                           │
+│       let occupancy_multiplier = if config.occupancy_rate >                  │
+│   config.surge_threshold {                                                   │
+│           // Tuyến tính từ 1.0 đến max_multiplier khi occupancy từ           │
+│   surge_threshold đến 1.0                                                    │
+│           let surge_range = 1.0 - config.surge_threshold;                    │
+│           let surge_progress = (config.occupancy_rate -                      │
+│   config.surge_threshold) / surge_range;                                     │
+│           1.0 + surge_progress * (config.max_multiplier - 1.0)               │
+│       } else {                                                               │
+│           1.0                                                                │
+│       };                                                                     │
+│                                                                              │
+│       if occupancy_multiplier > 1.0 {                                        │
+│           let surge_amount = config.base_price * (occupancy_multiplier -     │
+│   1.0);                                                                      │
+│           total += surge_amount;                                             │
+│           adjustments.push(PriceAdjustment {                                 │
+│               label: format!(                                                │
+│                   "Phụ thu cao điểm (occupancy {:.0}%)",                     │
+│                   config.occupancy_rate * 100.0                              │
+│               ),                                                             │
+│               amount: surge_amount,                                          │
+│               adjustment_type: AdjustmentType::Surcharge,                    │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // Peak day multiplier                                                 │
+│       if config.is_peak_day {                                                │
+│           let peak_amount = total * (config.peak_day_multiplier - 1.0);      │
+│           total += peak_amount;                                              │
+│           adjustments.push(PriceAdjustment {                                 │
+│               label: "Phụ thu ngày lễ/cuối tuần".to_string(),                │
+│               amount: peak_amount,                                           │
+│               adjustment_type: AdjustmentType::Multiplier,                   │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // Last-minute discount (chỉ áp dụng khi occupancy <                   │
+│   surge_threshold)                                                           │
+│       if config.is_last_minute && config.occupancy_rate <                    │
+│   config.surge_threshold {                                                   │
+│           let discount = total * config.last_minute_discount_pct / 100.0;    │
+│           total -= discount;                                                 │
+│           adjustments.push(PriceAdjustment {                                 │
+│               label: "Giảm giá last-minute".to_string(),                     │
+│               amount: -discount,                                             │
+│               adjustment_type: AdjustmentType::Discount,                     │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       PricingResult {                                                        │
+│           final_price: total.round(),                                        │
+│           base_price: config.base_price,                                     │
+│           adjustments,                                                       │
+│           mode: PricingMode::Dynamic,                                        │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  📁 File: src-tauri/src/pricing/tests.rs (Unit Tests - Case D1, D2)          │
+│                                                                              │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod test_d1_hourly_pricing {                                               │
+│       use crate::pricing::engine::calculate_hourly_price;                    │
+│       use crate::pricing::models::*;                                         │
+│                                                                              │
+│       /// Helper: tạo config hourly mặc định cho test                        │
+│       fn default_hourly_config() -> HourlyPricingConfig {                    │
+│           HourlyPricingConfig {                                              │
+│               first_hour_price: 150_000.0,    // 150k VND giờ đầu            │
+│               additional_hour_price: 100_000.0, // 100k VND mỗi giờ tiếp     │
+│               min_hours: 2,                      // Tối thiểu 2 giờ          │
+│               max_hours: 8,                      // Tối đa 8 giờ             │
+│               overnight_price: 600_000.0,        // 600k nếu vượt 8 giờ      │
+│               partial_hour_surcharge_pct: 50.0,  // 50% giá giờ tiếp theo    │
+│   cho giờ lẻ                                                                 │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_01_exact_minimum_hours() {                                       │
+│           // Đặt đúng 2 giờ (minimum)                                        │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 2.0);                 │
+│                                                                              │
+│           // 150k (giờ 1) + 100k (giờ 2) = 250k                              │
+│           assert_eq!(result.final_price, 250_000.0);                         │
+│           assert_eq!(result.mode, PricingMode::Hourly);                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_02_below_minimum_hours_rounds_up() {                             │
+│           // Đặt 1 giờ nhưng minimum là 2 => tính như 2 giờ                  │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 1.0);                 │
+│                                                                              │
+│           // Vẫn tính 2 giờ: 150k + 100k = 250k                              │
+│           assert_eq!(result.final_price, 250_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_03_multiple_hours() {                                            │
+│           // Đặt 5 giờ                                                       │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 5.0);                 │
+│                                                                              │
+│           // 150k (giờ 1) + 4 * 100k (giờ 2-5) = 550k                        │
+│           assert_eq!(result.final_price, 550_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_04_exceeds_max_hours_becomes_overnight() {                       │
+│           // Đặt 9 giờ > max 8 giờ => chuyển sang overnight                  │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 9.0);                 │
+│                                                                              │
+│           assert_eq!(result.final_price, 600_000.0); // overnight price      │
+│           assert_eq!(result.adjustments.len(), 1);                           │
+│           assert!(result.adjustments[0].label.contains("qua đêm"));          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_05_partial_hour_above_15min_surcharge() {                        │
+│           // Đặt 3.5 giờ (3 giờ 30 phút) => có phụ thu giờ lẻ                │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 3.5);                 │
+│                                                                              │
+│           // 150k (giờ 1) + 2 * 100k (giờ 2-3) + 50k (surcharge 50% of       │
+│   100k)                                                                      │
+│           // = 150k + 200k + 50k = 400k                                      │
+│           assert_eq!(result.final_price, 400_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_06_partial_hour_below_15min_no_surcharge() {                     │
+│           // Đặt 3.2 giờ (3 giờ 12 phút) => không phụ thu (<=15 phút)        │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 3.2);                 │
+│                                                                              │
+│           // 150k (giờ 1) + 2 * 100k (giờ 2-3) = 350k, không surcharge       │
+│           assert_eq!(result.final_price, 350_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_07_exactly_max_hours() {                                         │
+│           // Đặt đúng 8 giờ (max) => vẫn tính hourly, chưa chuyển            │
+│   overnight                                                                  │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 8.0);                 │
+│                                                                              │
+│           // 150k + 7 * 100k = 850k                                          │
+│           assert_eq!(result.final_price, 850_000.0);                         │
+│           assert_eq!(result.mode, PricingMode::Hourly);                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_08_zero_hours_uses_minimum() {                                   │
+│           // Edge case: 0 giờ => sử dụng minimum                             │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 0.0);                 │
+│                                                                              │
+│           assert_eq!(result.final_price, 250_000.0); // min 2 hours          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_09_adjustments_breakdown_correct() {                             │
+│           let config = default_hourly_config();                              │
+│           let result = calculate_hourly_price(&config, 4.0);                 │
+│                                                                              │
+│           // Phải có 2 adjustments: giờ đầu + 3 giờ tiếp                     │
+│           assert_eq!(result.adjustments.len(), 2);                           │
+│           assert_eq!(result.adjustments[0].amount, 150_000.0);               │
+│           assert_eq!(result.adjustments[1].amount, 300_000.0);               │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d1_10_high_first_hour_price() {                                     │
+│           // Config đặc biệt: giờ đầu đắt hơn nhiều                          │
+│           let config = HourlyPricingConfig {                                 │
+│               first_hour_price: 300_000.0,                                   │
+│               additional_hour_price: 80_000.0,                               │
+│               min_hours: 1,                                                  │
+│               max_hours: 6,                                                  │
+│               overnight_price: 500_000.0,                                    │
+│               partial_hour_surcharge_pct: 70.0,                              │
+│           };                                                                 │
+│           let result = calculate_hourly_price(&config, 3.0);                 │
+│                                                                              │
+│           // 300k + 2 * 80k = 460k                                           │
+│           assert_eq!(result.final_price, 460_000.0);                         │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod test_d2_dynamic_pricing {                                              │
+│       use crate::pricing::engine::calculate_dynamic_price;                   │
+│       use crate::pricing::models::*;                                         │
+│                                                                              │
+│       /// Helper: tạo config dynamic mặc định cho test                       │
+│       fn default_dynamic_config() -> DynamicPricingConfig {                  │
+│           DynamicPricingConfig {                                             │
+│               base_price: 500_000.0,          // 500k VND base               │
+│               occupancy_rate: 0.5,            // 50% occupancy               │
+│               surge_threshold: 0.7,           // Tăng giá từ 70%             │
+│               max_multiplier: 2.0,            // Tối đa gấp đôi              │
+│               is_peak_day: false,                                            │
+│               peak_day_multiplier: 1.3,       // +30% ngày lễ                │
+│               last_minute_discount_pct: 15.0, // -15% last minute            │
+│               is_last_minute: false,                                         │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_01_normal_occupancy_no_surge() {                                 │
+│           // Occupancy 50% < threshold 70% => không tăng giá                 │
+│           let config = default_dynamic_config();                             │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           assert_eq!(result.final_price, 500_000.0);                         │
+│           assert_eq!(result.base_price, 500_000.0);                          │
+│           assert_eq!(result.mode, PricingMode::Dynamic);                     │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_02_high_occupancy_surge_pricing() {                              │
+│           // Occupancy 90% > threshold 70% => surge                          │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 0.9;                                       │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // surge_progress = (0.9 - 0.7) / (1.0 - 0.7) = 0.667              │
+│           // multiplier = 1.0 + 0.667 * (2.0 - 1.0) = 1.667                  │
+│           // surge_amount = 500k * 0.667 = 333,333                           │
+│           // total = 500k + 333,333 = 833,333 => rounded = 833,333           │
+│           let expected = (500_000.0 * (1.0 + (0.2 / 0.3) * 1.0)).round();    │
+│           assert_eq!(result.final_price, expected);                          │
+│           assert!(result.final_price > 500_000.0);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_03_full_occupancy_max_multiplier() {                             │
+│           // Occupancy 100% => max multiplier                                │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 1.0;                                       │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // multiplier = 2.0 => total = 500k * 2 = 1,000k                   │
+│           assert_eq!(result.final_price, 1_000_000.0);                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_04_peak_day_multiplier() {                                       │
+│           // Ngày lễ + occupancy bình thường                                 │
+│           let mut config = default_dynamic_config();                         │
+│           config.is_peak_day = true;                                         │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // base 500k * peak 1.3 = 650k                                     │
+│           assert_eq!(result.final_price, 650_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_05_peak_day_with_surge() {                                       │
+│           // Ngày lễ + occupancy cao                                         │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 0.85;                                      │
+│           config.is_peak_day = true;                                         │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // surge_progress = (0.85 - 0.7) / 0.3 = 0.5                       │
+│           // multiplier = 1.5 => surge price = 500k * 1.5 = 750k             │
+│           // peak: 750k * 1.3 = 975k                                         │
+│           assert_eq!(result.final_price, 975_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_06_last_minute_discount_low_occupancy() {                        │
+│           // Last minute + occupancy thấp => được giảm giá                   │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 0.3;                                       │
+│           config.is_last_minute = true;                                      │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // base 500k - 15% = 500k * 0.85 = 425k                            │
+│           assert_eq!(result.final_price, 425_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_07_last_minute_no_discount_high_occupancy() {                    │
+│           // Last minute NHƯNG occupancy cao => KHÔNG giảm giá               │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 0.85;                                      │
+│           config.is_last_minute = true;                                      │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // Có surge nhưng không có last-minute discount vì occupancy >     │
+│   threshold                                                                  │
+│           // surge_progress = (0.85 - 0.7) / 0.3 = 0.5                       │
+│           // total = 500k * 1.5 = 750k (no discount)                         │
+│           assert_eq!(result.final_price, 750_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_08_at_exact_threshold_no_surge() {                               │
+│           // Occupancy đúng bằng threshold => chưa surge                     │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 0.7;                                       │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           assert_eq!(result.final_price, 500_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_09_just_above_threshold_minimal_surge() {                        │
+│           // Occupancy vừa vượt threshold                                    │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 0.71;                                      │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // surge_progress = (0.71 - 0.7) / 0.3 = 0.0333                    │
+│           // multiplier = 1.0333                                             │
+│           // total ≈ 500k * 1.0333 = 516,667 (rounded)                       │
+│           assert!(result.final_price > 500_000.0);                           │
+│           assert!(result.final_price < 520_000.0);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_10_combined_all_modifiers() {                                    │
+│           // Peak day + high occupancy + NOT last minute                     │
+│           let config = DynamicPricingConfig {                                │
+│               base_price: 800_000.0,                                         │
+│               occupancy_rate: 0.95,                                          │
+│               surge_threshold: 0.6,                                          │
+│               max_multiplier: 2.5,                                           │
+│               is_peak_day: true,                                             │
+│               peak_day_multiplier: 1.5,                                      │
+│               last_minute_discount_pct: 20.0,                                │
+│               is_last_minute: false,                                         │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // surge_progress = (0.95 - 0.6) / (1.0 - 0.6) = 0.875             │
+│           // multiplier = 1.0 + 0.875 * 1.5 = 2.3125                         │
+│           // surge_price = 800k * 2.3125 = 1,850k                            │
+│           // peak: 1,850k * 1.5 = 2,775k                                     │
+│           let surge_progress = (0.95 - 0.6) / 0.4;                           │
+│           let multiplier = 1.0 + surge_progress * (2.5 - 1.0);               │
+│           let surge_price = 800_000.0 * multiplier;                          │
+│           let expected = (surge_price * 1.5).round();                        │
+│           assert_eq!(result.final_price, expected);                          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_11_zero_occupancy() {                                            │
+│           // Edge case: khách sạn trống hoàn toàn                            │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 0.0;                                       │
+│           config.is_last_minute = true;                                      │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           // No surge + last minute discount = 500k * 0.85 = 425k            │
+│           assert_eq!(result.final_price, 425_000.0);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn d2_12_adjustments_contain_correct_labels() {                        │
+│           let mut config = default_dynamic_config();                         │
+│           config.occupancy_rate = 0.9;                                       │
+│           config.is_peak_day = true;                                         │
+│                                                                              │
+│           let result = calculate_dynamic_price(&config);                     │
+│                                                                              │
+│           assert!(result.adjustments.len() >= 2);                            │
+│           assert!(result.adjustments[0].label.contains("cao điểm"));         │
+│           assert!(result.adjustments[1].label.contains("ngày lễ"));          │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│  Cấu trúc thư mục:                                                           │
+│                                                                              │
+│                                                                              │
+│   src-tauri/                                                                 │
+│   ├── src/                                                                   │
+│   │   ├── main.rs                                                            │
+│   │   ├── lib.rs          ← thêm `pub mod pricing;`                          │
+│   │   └── pricing/                                                           │
+│   │       ├── mod.rs      ← file 1                                           │
+│   │       ├── models.rs   ← file 2                                           │
+│   │       ├── engine.rs   ← file 3                                           │
+│   │       └── tests.rs    ← file 4 (unit tests)                              │
+│                                                                              │
+│                                                                              │
+│  Bước 1: Thêm vào src-tauri/src/lib.rs:                                      │
+│                                                                              │
+│                                                                              │
+│   pub mod pricing;                                                           │
+│                                                                              │
+│                                                                              │
+│  Bước 2: Thêm dependency vào src-tauri/Cargo.toml:                           │
+│                                                                              │
+│                                                                              │
+│   [dependencies]                                                             │
+│   serde = { version = "1", features = ["derive"] }                           │
+│   chrono = { version = "0.4", features = ["serde"] }                         │
+│                                                                              │
+│                                                                              │
+│  Bước 3: Chạy test:                                                          │
+│                                                                              │
+│                                                                              │
+│   cd src-tauri                                                               │
+│   cargo test pricing::tests -- --nocapture                                   │
+│                                                                              │
+│                                                                              │
+│  Kết quả mong đợi:                                                           │
+│                                                                              │
+│                                                                              │
+│   running 22 tests                                                           │
+│   test pricing::tests::test_d1_hourly_pricing::d1_01_exact_minimum_hours     │
+│   ... ok                                                                     │
+│   test                                                                       │
+│   pricing::tests::test_d1_hourly_pricing::d1_02_below_minimum_hours_rounds   │
+│   _up ... ok                                                                 │
+│   ...                                                                        │
+│   test                                                                       │
+│   pricing::tests::test_d2_dynamic_pricing::d2_01_normal_occupancy_no_surge   │
+│   ... ok                                                                     │
+│   test                                                                       │
+│   pricing::tests::test_d2_dynamic_pricing::d2_02_high_occupancy_surge_pric   │
+│   ing ... ok                                                                 │
+│   ...                                                                        │
+│   test result: ok. 22 passed; 0 failed; 0 ignored                            │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Tóm tắt logic nghiệp vụ                                                     │
+│                                                                              │
+│  Case D1 (Hourly Pricing): Áp dụng cho khách thuê phòng theo giờ (phổ biến   │
+│  tại VN). Logic: giờ đầu giá riêng → các giờ tiếp giá khác → phần lẻ >15     │
+│  phút tính phụ thu → vượt max giờ thì chuyển sang giá overnight.             │
+│                                                                              │
+│  Case D2 (Dynamic Pricing): Giá thay đổi theo cung/cầu realtime. Logic:      │
+│  base price × occupancy surge multiplier (tuyến tính từ threshold đến max)   │
+│  × peak day multiplier − last-minute discount (chỉ khi occupancy thấp).      │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

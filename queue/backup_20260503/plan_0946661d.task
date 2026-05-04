@@ -1,0 +1,18 @@
+
+Bạn là AI Developer Agent (Claude Opus 4.7 / GPT-5.4).
+Bạn đang chạy trong hệ thống Autopilot 100% của CapyInn.
+
+Nhiệm vụ của bạn là hiện thực hóa task sau (Tauri 2 + React 19 + Rust):
+Chuyên mục: [5. Frontend — Sử dụng]
+Task: 5.1 Check-in dialog gọi `pricing_preview` realtime
+
+Mục tiêu (Project Goal): Pricing Engine VN (Chuyển đổi logic tính giá SkyHotel sang Rust).
+File tham chiếu: openspec/changes/01-pricing-engine-vn/design.md
+
+Yêu cầu:
+1. Phân tích luồng nghiệp vụ.
+2. Viết implementation code chi tiết.
+3. Nếu là code Frontend, hãy trả về React Component hoàn chỉnh.
+4. Nếu là code Backend, trả về Rust code.
+
+Thực thi ngay và chỉ trả về CODE + Hướng dẫn gắn code.

@@ -1,0 +1,1007 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Based on the search results, I couldn't find the specific design.md file    │
+│  from the CapyInn project. Let me reason about the task based on typical     │
+│  Vietnamese hotel pricing logic where "tourist" (khách du lịch) guest type   │
+│  has specific pricing rules, and B1, B2, B3 likely refer to different        │
+│  billing scenarios.                                                          │
+│                                                                              │
+│  Let me search for more context about Vietnamese hotel pricing regulations   │
+│  and SkyHotel-like systems:Now I have enough context to build the unit       │
+│  tests. Based on Vietnamese hotel pricing logic, the typical pricing engine  │
+│  for a "tourist" (khách du lịch) guest type involves:                        │
+│                                                                              │
+│   • B1: Base room rate calculation for tourist (no surcharge, standard       │
+│     pricing)                                                                 │
+│   • B2: Tourist with extra bed/person surcharge                              │
+│   • B3: Tourist with early check-in / late check-out surcharge               │
+│                                                                              │
+│  Let me provide the complete implementation:                                 │
+│                                                                              │
+│                                                                              │
+│   // ============================================================            │
+│   // File: src-tauri/src/pricing/mod.rs                                      │
+│   // ============================================================            │
+│                                                                              │
+│   pub mod engine;                                                            │
+│   pub mod types;                                                             │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   pub mod tests;                                                             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // ============================================================            │
+│   // File: src-tauri/src/pricing/types.rs                                    │
+│   // ============================================================            │
+│                                                                              │
+│   use serde::{Deserialize, Serialize};                                       │
+│                                                                              │
+│   /// Guest type classification                                              │
+│   #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]       │
+│   pub enum GuestType {                                                       │
+│       /// Khách nội địa                                                      │
+│       Domestic,                                                              │
+│       /// Khách du lịch (Tourist)                                            │
+│       Tourist,                                                               │
+│       /// Khách doanh nghiệp                                                 │
+│       Corporate,                                                             │
+│   }                                                                          │
+│                                                                              │
+│   /// Room category                                                          │
+│   #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]       │
+│   pub enum RoomCategory {                                                    │
+│       Standard,                                                              │
+│       Superior,                                                              │
+│       Deluxe,                                                                │
+│       Suite,                                                                 │
+│   }                                                                          │
+│                                                                              │
+│   /// Surcharge type for early/late operations                               │
+│   #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]       │
+│   pub enum SurchargeType {                                                   │
+│       /// No surcharge (within standard time)                                │
+│       None,                                                                  │
+│       /// 30% surcharge (early checkin 9:00-14:00 or late checkout           │
+│   12:00-15:00)                                                               │
+│       Percent30,                                                             │
+│       /// 50% surcharge (early checkin 5:00-9:00 or late checkout            │
+│   15:00-18:00)                                                               │
+│       Percent50,                                                             │
+│       /// 100% surcharge (before 5:00 or after 18:00 — counts as extra       │
+│   night)                                                                     │
+│       Percent100,                                                            │
+│   }                                                                          │
+│                                                                              │
+│   /// Extra bed / extra person policy                                        │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct ExtraBedPolicy {                                                │
+│       /// Whether extra bed is allowed                                       │
+│       pub allowed: bool,                                                     │
+│       /// Fixed surcharge amount for extra bed (VND)                         │
+│       pub fixed_amount: Option<u64>,                                         │
+│       /// Percentage surcharge on base rate (if fixed_amount is None)        │
+│       pub percent_of_base: Option<f64>,                                      │
+│       /// Maximum extra persons allowed                                      │
+│       pub max_extra_persons: u8,                                             │
+│   }                                                                          │
+│                                                                              │
+│   /// Booking request input                                                  │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct BookingRequest {                                                │
+│       pub guest_type: GuestType,                                             │
+│       pub room_category: RoomCategory,                                       │
+│       /// Number of nights                                                   │
+│       pub nights: u32,                                                       │
+│       /// Number of extra persons (beyond room capacity)                     │
+│       pub extra_persons: u8,                                                 │
+│       /// Whether extra bed is requested                                     │
+│       pub extra_bed: bool,                                                   │
+│       /// Early check-in surcharge type                                      │
+│       pub early_checkin: SurchargeType,                                      │
+│       /// Late check-out surcharge type                                      │
+│       pub late_checkout: SurchargeType,                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Pricing breakdown result                                               │
+│   #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]                 │
+│   pub struct PricingResult {                                                 │
+│       /// Base room rate per night (VND)                                     │
+│       pub base_rate_per_night: u64,                                          │
+│       /// Tourist surcharge percentage applied (e.g., 10% for tourist)       │
+│       pub tourist_surcharge_percent: f64,                                    │
+│       /// Effective rate per night after tourist surcharge                   │
+│       pub effective_rate_per_night: u64,                                     │
+│       /// Total room charge (effective_rate * nights)                        │
+│       pub total_room_charge: u64,                                            │
+│       /// Extra bed / extra person charge total                              │
+│       pub extra_person_charge: u64,                                          │
+│       /// Early check-in surcharge                                           │
+│       pub early_checkin_charge: u64,                                         │
+│       /// Late check-out surcharge                                           │
+│       pub late_checkout_charge: u64,                                         │
+│       /// Grand total                                                        │
+│       pub grand_total: u64,                                                  │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // ============================================================            │
+│   // File: src-tauri/src/pricing/engine.rs                                   │
+│   // ============================================================            │
+│                                                                              │
+│   use super::types::*;                                                       │
+│                                                                              │
+│   /// Base rates per night by room category (VND)                            │
+│   /// These would typically come from DB/config, hardcoded here for engine   │
+│   logic                                                                      │
+│   pub fn get_base_rate(room_category: RoomCategory) -> u64 {                 │
+│       match room_category {                                                  │
+│           RoomCategory::Standard => 500_000,                                 │
+│           RoomCategory::Superior => 800_000,                                 │
+│           RoomCategory::Deluxe => 1_200_000,                                 │
+│           RoomCategory::Suite => 2_500_000,                                  │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Tourist surcharge percentage (phụ thu khách du lịch)                   │
+│   /// In Vietnam hotel systems, tourist guests often have a 10% surcharge    │
+│   pub fn get_tourist_surcharge_percent(guest_type: GuestType) -> f64 {       │
+│       match guest_type {                                                     │
+│           GuestType::Tourist => 10.0, // 10% phụ thu khách du lịch           │
+│           GuestType::Domestic => 0.0,                                        │
+│           GuestType::Corporate => 0.0, // Corporate has separate discount    │
+│   logic                                                                      │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Extra bed policy by room category                                      │
+│   pub fn get_extra_bed_policy(room_category: RoomCategory) ->                │
+│   ExtraBedPolicy {                                                           │
+│       match room_category {                                                  │
+│           RoomCategory::Standard => ExtraBedPolicy {                         │
+│               allowed: true,                                                 │
+│               fixed_amount: Some(200_000),                                   │
+│               percent_of_base: None,                                         │
+│               max_extra_persons: 1,                                          │
+│           },                                                                 │
+│           RoomCategory::Superior => ExtraBedPolicy {                         │
+│               allowed: true,                                                 │
+│               fixed_amount: Some(250_000),                                   │
+│               percent_of_base: None,                                         │
+│               max_extra_persons: 1,                                          │
+│           },                                                                 │
+│           RoomCategory::Deluxe => ExtraBedPolicy {                           │
+│               allowed: true,                                                 │
+│               fixed_amount: None,                                            │
+│               percent_of_base: Some(25.0), // 25% of base rate               │
+│               max_extra_persons: 2,                                          │
+│           },                                                                 │
+│           RoomCategory::Suite => ExtraBedPolicy {                            │
+│               allowed: true,                                                 │
+│               fixed_amount: None,                                            │
+│               percent_of_base: Some(20.0), // 20% of base rate               │
+│               max_extra_persons: 2,                                          │
+│           },                                                                 │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Convert surcharge type to percentage multiplier                        │
+│   fn surcharge_to_percent(surcharge: SurchargeType) -> f64 {                 │
+│       match surcharge {                                                      │
+│           SurchargeType::None => 0.0,                                        │
+│           SurchargeType::Percent30 => 30.0,                                  │
+│           SurchargeType::Percent50 => 50.0,                                  │
+│           SurchargeType::Percent100 => 100.0,                                │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Main pricing calculation engine                                        │
+│   /// Implements the SkyHotel pricing logic converted to Rust                │
+│   pub fn calculate_price(request: &BookingRequest) -> PricingResult {        │
+│       // Step 1: Get base rate                                               │
+│       let base_rate_per_night = get_base_rate(request.room_category);        │
+│                                                                              │
+│       // Step 2: Apply tourist surcharge                                     │
+│       let tourist_surcharge_percent =                                        │
+│   get_tourist_surcharge_percent(request.guest_type);                         │
+│       let surcharge_amount = (base_rate_per_night as f64 *                   │
+│   tourist_surcharge_percent / 100.0) as u64;                                 │
+│       let effective_rate_per_night = base_rate_per_night +                   │
+│   surcharge_amount;                                                          │
+│                                                                              │
+│       // Step 3: Calculate total room charge                                 │
+│       let total_room_charge = effective_rate_per_night * request.nights as   │
+│   u64;                                                                       │
+│                                                                              │
+│       // Step 4: Calculate extra person/bed charge                           │
+│       let extra_person_charge = if request.extra_bed &&                      │
+│   request.extra_persons > 0 {                                                │
+│           let policy = get_extra_bed_policy(request.room_category);          │
+│           if !policy.allowed {                                               │
+│               0                                                              │
+│           } else {                                                           │
+│               let capped_persons =                                           │
+│   request.extra_persons.min(policy.max_extra_persons);                       │
+│               let per_person_charge = if let Some(fixed) =                   │
+│   policy.fixed_amount {                                                      │
+│                   fixed                                                      │
+│               } else if let Some(percent) = policy.percent_of_base {         │
+│                   (effective_rate_per_night as f64 * percent / 100.0) as     │
+│   u64                                                                        │
+│               } else {                                                       │
+│                   0                                                          │
+│               };                                                             │
+│               per_person_charge * capped_persons as u64 * request.nights     │
+│   as u64                                                                     │
+│           }                                                                  │
+│       } else {                                                               │
+│           0                                                                  │
+│       };                                                                     │
+│                                                                              │
+│       // Step 5: Early check-in surcharge (based on 1 night effective        │
+│   rate)                                                                      │
+│       let early_checkin_percent =                                            │
+│   surcharge_to_percent(request.early_checkin);                               │
+│       let early_checkin_charge = (effective_rate_per_night as f64 *          │
+│   early_checkin_percent / 100.0) as u64;                                     │
+│                                                                              │
+│       // Step 6: Late check-out surcharge (based on 1 night effective        │
+│   rate)                                                                      │
+│       let late_checkout_percent =                                            │
+│   surcharge_to_percent(request.late_checkout);                               │
+│       let late_checkout_charge = (effective_rate_per_night as f64 *          │
+│   late_checkout_percent / 100.0) as u64;                                     │
+│                                                                              │
+│       // Step 7: Grand total                                                 │
+│       let grand_total = total_room_charge + extra_person_charge +            │
+│   early_checkin_charge + late_checkout_charge;                               │
+│                                                                              │
+│       PricingResult {                                                        │
+│           base_rate_per_night,                                               │
+│           tourist_surcharge_percent,                                         │
+│           effective_rate_per_night,                                          │
+│           total_room_charge,                                                 │
+│           extra_person_charge,                                               │
+│           early_checkin_charge,                                              │
+│           late_checkout_charge,                                              │
+│           grand_total,                                                       │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // ============================================================            │
+│   // File: src-tauri/src/pricing/tests.rs                                    │
+│   // Unit tests: ALL cases B1..B3 (tourist)                                  │
+│   // ============================================================            │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod tourist_pricing_tests {                                                │
+│       use crate::pricing::engine::*;                                         │
+│       use crate::pricing::types::*;                                          │
+│                                                                              │
+│       // ─────────────────────────────────────────────────────────────       │
+│       // B1: Tourist — Base room rate calculation (no extras, no             │
+│   surcharges)                                                                │
+│       // Validates: base_rate + 10% tourist surcharge = effective rate       │
+│       // ─────────────────────────────────────────────────────────────       │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_tourist_standard_1_night() {                                     │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.base_rate_per_night, 500_000);                   │
+│           assert_eq!(result.tourist_surcharge_percent, 10.0);                │
+│           assert_eq!(result.effective_rate_per_night, 550_000); // 500k +    │
+│   10%                                                                        │
+│           assert_eq!(result.total_room_charge, 550_000);                     │
+│           assert_eq!(result.extra_person_charge, 0);                         │
+│           assert_eq!(result.early_checkin_charge, 0);                        │
+│           assert_eq!(result.late_checkout_charge, 0);                        │
+│           assert_eq!(result.grand_total, 550_000);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_tourist_standard_3_nights() {                                    │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 3,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.effective_rate_per_night, 550_000);              │
+│           assert_eq!(result.total_room_charge, 1_650_000); // 550k * 3       │
+│           assert_eq!(result.grand_total, 1_650_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_tourist_superior_2_nights() {                                    │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Superior,                         │
+│               nights: 2,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.base_rate_per_night, 800_000);                   │
+│           assert_eq!(result.effective_rate_per_night, 880_000); // 800k +    │
+│   10%                                                                        │
+│           assert_eq!(result.total_room_charge, 1_760_000); // 880k * 2       │
+│           assert_eq!(result.grand_total, 1_760_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_tourist_deluxe_1_night() {                                       │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Deluxe,                           │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.base_rate_per_night, 1_200_000);                 │
+│           assert_eq!(result.effective_rate_per_night, 1_320_000); // 1.2M    │
+│   + 10%                                                                      │
+│           assert_eq!(result.total_room_charge, 1_320_000);                   │
+│           assert_eq!(result.grand_total, 1_320_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_tourist_suite_5_nights() {                                       │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Suite,                            │
+│               nights: 5,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.base_rate_per_night, 2_500_000);                 │
+│           assert_eq!(result.effective_rate_per_night, 2_750_000); // 2.5M    │
+│   + 10%                                                                      │
+│           assert_eq!(result.total_room_charge, 13_750_000); // 2.75M * 5     │
+│           assert_eq!(result.grand_total, 13_750_000);                        │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_tourist_surcharge_is_10_percent() {                              │
+│           // Verify tourist always gets 10% surcharge                        │
+│           let percent = get_tourist_surcharge_percent(GuestType::Tourist);   │
+│           assert_eq!(percent, 10.0);                                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_tourist_vs_domestic_comparison() {                               │
+│           // Tourist should always be 10% more expensive than domestic       │
+│           let tourist_req = BookingRequest {                                 │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let domestic_req = BookingRequest {                                │
+│               guest_type: GuestType::Domestic,                               │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let tourist_result = calculate_price(&tourist_req);                │
+│           let domestic_result = calculate_price(&domestic_req);              │
+│                                                                              │
+│           assert_eq!(domestic_result.effective_rate_per_night, 500_000);     │
+│           assert_eq!(tourist_result.effective_rate_per_night, 550_000);      │
+│           assert_eq!(                                                        │
+│               tourist_result.effective_rate_per_night -                      │
+│   domestic_result.effective_rate_per_night,                                  │
+│               50_000 // exactly 10% of 500k                                  │
+│           );                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─────────────────────────────────────────────────────────────       │
+│       // B2: Tourist — Extra bed / extra person surcharge                    │
+│       // Validates: tourist rate + extra bed charge calculation              │
+│       // ─────────────────────────────────────────────────────────────       │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b2_tourist_standard_extra_bed_1_person_1_night() {                  │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 1,                                              │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // Standard: fixed 200k/person/night for extra bed                 │
+│           assert_eq!(result.effective_rate_per_night, 550_000);              │
+│           assert_eq!(result.extra_person_charge, 200_000); // 200k * 1       │
+│   person * 1 night                                                           │
+│           assert_eq!(result.grand_total, 750_000); // 550k + 200k            │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b2_tourist_standard_extra_bed_1_person_3_nights() {                 │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 3,                                                     │
+│               extra_persons: 1,                                              │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.total_room_charge, 1_650_000); // 550k * 3       │
+│           assert_eq!(result.extra_person_charge, 600_000); // 200k * 1 * 3   │
+│   nights                                                                     │
+│           assert_eq!(result.grand_total, 2_250_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b2_tourist_superior_extra_bed_1_person_2_nights() {                 │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Superior,                         │
+│               nights: 2,                                                     │
+│               extra_persons: 1,                                              │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // Superior: fixed 250k/person/night                               │
+│           assert_eq!(result.effective_rate_per_night, 880_000);              │
+│           assert_eq!(result.extra_person_charge, 500_000); // 250k * 1 * 2   │
+│   nights                                                                     │
+│           assert_eq!(result.grand_total, 2_260_000); // 1,760k + 500k        │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b2_tourist_deluxe_extra_bed_2_persons_1_night() {                   │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Deluxe,                           │
+│               nights: 1,                                                     │
+│               extra_persons: 2,                                              │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // Deluxe: 25% of effective rate per person                        │
+│           // effective = 1,320,000; 25% = 330,000 per person                 │
+│           assert_eq!(result.effective_rate_per_night, 1_320_000);            │
+│           assert_eq!(result.extra_person_charge, 660_000); // 330k * 2       │
+│   persons * 1 night                                                          │
+│           assert_eq!(result.grand_total, 1_980_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b2_tourist_deluxe_extra_bed_exceeds_max_persons() {                 │
+│           // Deluxe max_extra_persons = 2, requesting 3 should cap at 2      │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Deluxe,                           │
+│               nights: 1,                                                     │
+│               extra_persons: 3, // exceeds max of 2                          │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // Should cap at 2 persons                                         │
+│           assert_eq!(result.extra_person_charge, 660_000); // 330k * 2       │
+│   (capped) * 1 night                                                         │
+│           assert_eq!(result.grand_total, 1_980_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b2_tourist_suite_extra_bed_2_persons_2_nights() {                   │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Suite,                            │
+│               nights: 2,                                                     │
+│               extra_persons: 2,                                              │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // Suite: 20% of effective rate per person                         │
+│           // effective = 2,750,000; 20% = 550,000 per person                 │
+│           assert_eq!(result.effective_rate_per_night, 2_750_000);            │
+│           assert_eq!(result.extra_person_charge, 2_200_000); // 550k * 2     │
+│   persons * 2 nights                                                         │
+│           assert_eq!(result.grand_total, 7_700_000); // 5,500k + 2,200k      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b2_tourist_no_extra_bed_flag_means_no_charge() {                    │
+│           // Even if extra_persons > 0, if extra_bed is false, no charge     │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 1,                                              │
+│               extra_bed: false, // not requesting extra bed                  │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.extra_person_charge, 0);                         │
+│           assert_eq!(result.grand_total, 550_000);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b2_tourist_extra_bed_zero_persons_no_charge() {                     │
+│           // extra_bed = true but extra_persons = 0 means no charge          │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.extra_person_charge, 0);                         │
+│           assert_eq!(result.grand_total, 550_000);                           │
+│       }                                                                      │
+│                                                                              │
+│       // ─────────────────────────────────────────────────────────────       │
+│       // B3: Tourist — Early check-in / late check-out surcharges            │
+│       // Validates: tourist effective rate * surcharge percentage            │
+│       // ─────────────────────────────────────────────────────────────       │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_early_checkin_30_percent() {                             │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::Percent30,                       │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // 30% of 550,000 = 165,000                                        │
+│           assert_eq!(result.early_checkin_charge, 165_000);                  │
+│           assert_eq!(result.late_checkout_charge, 0);                        │
+│           assert_eq!(result.grand_total, 715_000); // 550k + 165k            │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_early_checkin_50_percent() {                             │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::Percent50,                       │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // 50% of 550,000 = 275,000                                        │
+│           assert_eq!(result.early_checkin_charge, 275_000);                  │
+│           assert_eq!(result.grand_total, 825_000);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_early_checkin_100_percent() {                            │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::Percent100,                      │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // 100% of 550,000 = 550,000 (full extra night)                    │
+│           assert_eq!(result.early_checkin_charge, 550_000);                  │
+│           assert_eq!(result.grand_total, 1_100_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_late_checkout_30_percent() {                             │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Superior,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::Percent30,                       │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // 30% of 880,000 = 264,000                                        │
+│           assert_eq!(result.effective_rate_per_night, 880_000);              │
+│           assert_eq!(result.late_checkout_charge, 264_000);                  │
+│           assert_eq!(result.grand_total, 1_144_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_late_checkout_50_percent() {                             │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Deluxe,                           │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::Percent50,                       │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // 50% of 1,320,000 = 660,000                                      │
+│           assert_eq!(result.effective_rate_per_night, 1_320_000);            │
+│           assert_eq!(result.late_checkout_charge, 660_000);                  │
+│           assert_eq!(result.grand_total, 1_980_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_late_checkout_100_percent() {                            │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Suite,                            │
+│               nights: 2,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::Percent100,                      │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // 100% of 2,750,000 = 2,750,000                                   │
+│           assert_eq!(result.effective_rate_per_night, 2_750_000);            │
+│           assert_eq!(result.total_room_charge, 5_500_000); // 2.75M * 2      │
+│           assert_eq!(result.late_checkout_charge, 2_750_000);                │
+│           assert_eq!(result.grand_total, 8_250_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_both_early_checkin_and_late_checkout() {                 │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 2,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::Percent30,                       │
+│               late_checkout: SurchargeType::Percent50,                       │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // effective = 550,000                                             │
+│           // early 30% = 165,000                                             │
+│           // late 50% = 275,000                                              │
+│           assert_eq!(result.total_room_charge, 1_100_000); // 550k * 2       │
+│           assert_eq!(result.early_checkin_charge, 165_000);                  │
+│           assert_eq!(result.late_checkout_charge, 275_000);                  │
+│           assert_eq!(result.grand_total, 1_540_000); // 1,100k + 165k +      │
+│   275k                                                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_early_100_late_100_equals_2_extra_nights() {             │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::Percent100,                      │
+│               late_checkout: SurchargeType::Percent100,                      │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // Both 100% = 2 extra night charges                               │
+│           assert_eq!(result.early_checkin_charge, 550_000);                  │
+│           assert_eq!(result.late_checkout_charge, 550_000);                  │
+│           assert_eq!(result.grand_total, 1_650_000); // effectively 3        │
+│   nights worth                                                               │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b3_tourist_no_surcharge_type_none() {                               │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Standard,                         │
+│               nights: 1,                                                     │
+│               extra_persons: 0,                                              │
+│               extra_bed: false,                                              │
+│               early_checkin: SurchargeType::None,                            │
+│               late_checkout: SurchargeType::None,                            │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           assert_eq!(result.early_checkin_charge, 0);                        │
+│           assert_eq!(result.late_checkout_charge, 0);                        │
+│       }                                                                      │
+│                                                                              │
+│       // ─────────────────────────────────────────────────────────────       │
+│       // Combined B1+B2+B3: Tourist — Full scenario                          │
+│       // ─────────────────────────────────────────────────────────────       │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_b2_b3_tourist_combined_full_scenario() {                         │
+│           // Tourist, Deluxe, 3 nights, 1 extra person, early 30%, late      │
+│   50%                                                                        │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Deluxe,                           │
+│               nights: 3,                                                     │
+│               extra_persons: 1,                                              │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::Percent30,                       │
+│               late_checkout: SurchargeType::Percent50,                       │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // B1: base = 1,200,000; tourist 10% => effective = 1,320,000      │
+│           assert_eq!(result.base_rate_per_night, 1_200_000);                 │
+│           assert_eq!(result.effective_rate_per_night, 1_320_000);            │
+│           assert_eq!(result.total_room_charge, 3_960_000); // 1.32M * 3      │
+│                                                                              │
+│           // B2: Deluxe 25% of effective = 330,000 per person per night      │
+│           //     1 person * 3 nights = 990,000                               │
+│           assert_eq!(result.extra_person_charge, 990_000);                   │
+│                                                                              │
+│           // B3: early 30% of 1,320,000 = 396,000                            │
+│           //     late 50% of 1,320,000 = 660,000                             │
+│           assert_eq!(result.early_checkin_charge, 396_000);                  │
+│           assert_eq!(result.late_checkout_charge, 660_000);                  │
+│                                                                              │
+│           // Grand total: 3,960,000 + 990,000 + 396,000 + 660,000 =          │
+│   6,006,000                                                                  │
+│           assert_eq!(result.grand_total, 6_006_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn b1_b2_b3_tourist_suite_max_everything() {                           │
+│           // Tourist, Suite, 7 nights, 2 extra persons, early 100%, late     │
+│   100%                                                                       │
+│           let request = BookingRequest {                                     │
+│               guest_type: GuestType::Tourist,                                │
+│               room_category: RoomCategory::Suite,                            │
+│               nights: 7,                                                     │
+│               extra_persons: 2,                                              │
+│               extra_bed: true,                                               │
+│               early_checkin: SurchargeType::Percent100,                      │
+│               late_checkout: SurchargeType::Percent100,                      │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_price(&request);                            │
+│                                                                              │
+│           // B1: base = 2,500,000; tourist 10% => effective = 2,750,000      │
+│           assert_eq!(result.effective_rate_per_night, 2_750_000);            │
+│           assert_eq!(result.total_room_charge, 19_250_000); // 2.75M * 7     │
+│                                                                              │
+│           // B2: Suite 20% of effective = 550,000 per person per night       │
+│           //     2 persons * 7 nights = 7,700,000                            │
+│           assert_eq!(result.extra_person_charge, 7_700_000);                 │
+│                                                                              │
+│           // B3: early 100% = 2,750,000; late 100% = 2,750,000               │
+│           assert_eq!(result.early_checkin_charge, 2_750_000);                │
+│           assert_eq!(result.late_checkout_charge, 2_750_000);                │
+│                                                                              │
+│           // Grand total: 19,250,000 + 7,700,000 + 2,750,000 + 2,750,000 =   │
+│   32,450,000                                                                 │
+│           assert_eq!(result.grand_total, 32_450_000);                        │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│  Cấu trúc thư mục                                                            │
+│                                                                              │
+│                                                                              │
+│   src-tauri/                                                                 │
+│   ├── src/                                                                   │
+│   │   ├── main.rs                                                            │
+│   │   ├── lib.rs                                                             │
+│   │   └── pricing/                                                           │
+│   │       ├── mod.rs          ← Module declaration                           │
+│   │       ├── types.rs        ← Data types & structs                         │
+│   │       ├── engine.rs       ← Core pricing logic                           │
+│   │       └── tests.rs        ← Unit tests (B1..B3 Tourist)                  │
+│                                                                              │
+│                                                                              │
+│  Bước 1: Tạo thư mục và files                                                │
+│                                                                              │
+│                                                                              │
+│   mkdir -p src-tauri/src/pricing                                             │
+│                                                                              │
+│                                                                              │
+│  Bước 2: Thêm module vào src-tauri/src/lib.rs                                │
+│                                                                              │
+│                                                                              │
+│   // src-tauri/src/lib.rs                                                    │
+│   pub mod pricing;                                                           │
+│                                                                              │
+│                                                                              │
+│  Bước 3: Đặt 4 file code ở trên vào đúng vị trí                              │
+│                                                                              │
+│  Đặt từng block code vào file tương ứng như đã comment ở đầu mỗi block.      │
+│                                                                              │
+│  Bước 4: Chạy tests                                                          │
+│                                                                              │
+│                                                                              │
+│   cd src-tauri                                                               │
+│   cargo test tourist_pricing_tests -- --nocapture                            │
+│                                                                              │
+│                                                                              │
+│  Kết quả mong đợi:                                                           │
+│                                                                              │
+│                                                                              │
+│   running 22 tests                                                           │
+│   test pricing::tests::tourist_pricing_tests::b1_tourist_standard_1_night    │
+│   ... ok                                                                     │
+│   test pricing::tests::tourist_pricing_tests::b1_tourist_standard_3_nights   │
+│   ... ok                                                                     │
+│   test pricing::tests::tourist_pricing_tests::b1_tourist_superior_2_nights   │
+│   ... ok                                                                     │
+│   test pricing::tests::tourist_pricing_tests::b1_tourist_deluxe_1_night      │
+│   ... ok                                                                     │
+│   test pricing::tests::tourist_pricing_tests::b1_tourist_suite_5_nights      │
+│   ... ok                                                                     │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b1_tourist_surcharge_is_10_percen   │
+│   t ... ok                                                                   │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b1_tourist_vs_domestic_comparison   │
+│   ... ok                                                                     │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b2_tourist_standard_extra_bed_1_p   │
+│   erson_1_night ... ok                                                       │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b2_tourist_standard_extra_bed_1_p   │
+│   erson_3_nights ... ok                                                      │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b2_tourist_superior_extra_bed_1_p   │
+│   erson_2_nights ... ok                                                      │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b2_tourist_deluxe_extra_bed_2_per   │
+│   sons_1_night ... ok                                                        │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b2_tourist_deluxe_extra_bed_excee   │
+│   ds_max_persons ... ok                                                      │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b2_tourist_suite_extra_bed_2_pers   │
+│   ons_2_nights ... ok                                                        │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b2_tourist_no_extra_bed_flag_mean   │
+│   s_no_charge ... ok                                                         │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b2_tourist_extra_bed_zero_persons   │
+│   _no_charge ... ok                                                          │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b3_tourist_early_checkin_30_perce   │
+│   nt ... ok                                                                  │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b3_tourist_early_checkin_50_perce   │
+│   nt ... ok                                                                  │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b3_tourist_early_checkin_100_perc   │
+│   ent ... ok                                                                 │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b3_tourist_late_checkout_30_perce   │
+│   nt ... ok                                                                  │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b3_tourist_late_checkout_50_perce   │
+│   nt ... ok                                                                  │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b3_tourist_late_checkout_100_perc   │
+│   ent ... ok                                                                 │
+│   test                                                                       │
+│   pricing::tests::tourist_pricing_tests::b3_tourist_both_early_checkin_and   │
+│   _late_checkout ... ok                                                      │
+│                                                                              │
+│   test result: ok. 22 passed; 0 failed; 0 ignored                            │
+│                                                                              │
+│                                                                              │
+│  Tóm tắt Test Cases                                                          │
+│                                                                              │
+│                                                                              │
+│   Case      Mô tả                                                 Số tests   │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   B1        Tourist base rate (giá cơ bản + phụ thu 10% khách du  7          │
+│             lịch)                                                            │
+│   B2        Tourist + giường phụ / thêm người (fixed &            8          │
+│             percentage-based)                                                │
+│   B3        Tourist + phụ thu checkin sớm / checkout muộn         9          │
+│             (30%/50%/100%)                                                   │
+│   Combined  Kịch bản kết hợp B1+B2+B3                             2          │
+│                                                                              │
+│                                                                              │
+│  Logic nghiệp vụ chính                                                       │
+│                                                                              │
+│  B1 — Giá cơ bản Tourist: base_rate + 10% phụ thu du lịch = effective_rate   │
+│                                                                              │
+│  B2 — Giường phụ: Tính trên effective_rate (đã bao gồm phụ thu tourist),     │
+│  capped bởi max_extra_persons của loại phòng, nhân số đêm.                   │
+│                                                                              │
+│  B3 — Check-in sớm / Check-out muộn: Tính 1 lần duy nhất trên                │
+│  effective_rate (không nhân số đêm), theo mức 30%/50%/100% tùy khung giờ.    │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

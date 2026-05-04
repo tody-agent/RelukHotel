@@ -1,0 +1,646 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Let me look for the design.md file in the openspec/changes directory:Let    │
+│  me look at the existing pricing.rs file:The raw GitHub page didn't load     │
+│  the file content. Let me try the raw URL:Now I have the full context of     │
+│  the existing pricing.rs. I can see the current code has a pricing_type      │
+│  parameter that's passed explicitly by the caller. The task is to implement  │
+│  decide_mode() which auto-detects the pricing mode based on                  │
+│  check-in/check-out times. Let me also look at the domain folder for more    │
+│  context:Now I have all the context I need. Based on the existing            │
+│  pricing.rs code, I can see the Vietnamese hotel pricing engine with 4       │
+│  modes: hourly, overnight, daily, nightly. The task is to implement          │
+│  decide_mode() which auto-detects the best pricing mode based on             │
+│  check-in/check-out datetime patterns.                                       │
+│                                                                              │
+│  Here's the complete implementation:                                         │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│              Task 2.3: decide_mode() — Auto-detect Pricing Mode              │
+│                                                                              │
+│  Implementation Code                                                         │
+│                                                                              │
+│                                                                              │
+│   // ═══════════════════════════════════════════════════════════════════     │
+│   // File: mhm/src-tauri/src/pricing.rs                                      │
+│   // Add this code AFTER the existing `calculate_price()` function           │
+│   // and BEFORE the `// ─── Helpers ───` section.                            │
+│   // ═══════════════════════════════════════════════════════════════════     │
+│                                                                              │
+│   /// Pricing mode enum for type-safe auto-detection results                 │
+│   #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]       │
+│   #[serde(rename_all = "lowercase")]                                         │
+│   pub enum PricingMode {                                                     │
+│       Hourly,                                                                │
+│       Overnight,                                                             │
+│       Daily,                                                                 │
+│       Nightly,                                                               │
+│   }                                                                          │
+│                                                                              │
+│   impl PricingMode {                                                         │
+│       pub fn as_str(&self) -> &'static str {                                 │
+│           match self {                                                       │
+│               PricingMode::Hourly => "hourly",                               │
+│               PricingMode::Overnight => "overnight",                         │
+│               PricingMode::Daily => "daily",                                 │
+│               PricingMode::Nightly => "nightly",                             │
+│           }                                                                  │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   impl std::fmt::Display for PricingMode {                                   │
+│       fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {   │
+│           f.write_str(self.as_str())                                         │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Result of auto-detection with reasoning for debugging/logging          │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct DecideModeResult {                                              │
+│       pub mode: PricingMode,                                                 │
+│       pub reason: String,                                                    │
+│   }                                                                          │
+│                                                                              │
+│   /// Auto-detect the optimal pricing mode based on check-in/check-out       │
+│   /// times and the configured pricing rule.                                 │
+│   ///                                                                        │
+│   /// # Vietnamese Hotel Pricing Logic (SkyHotel convention):                │
+│   ///                                                                        │
+│   /// 1. **Hourly** (theo giờ): duration ≤ 6 hours, or explicit short-stay   │
+│   ///    pattern (same calendar day, daytime hours).                         │
+│   ///                                                                        │
+│   /// 2. **Overnight** (qua đêm): check-in is in the evening window          │
+│   ///    (after overnight_start or within 3h before), check-out is next      │
+│   morning                                                                    │
+│   ///    before or at overnight_end. Typically 22:00→11:00.                  │
+│   ///                                                                        │
+│   /// 3. **Daily** (theo ngày): check-in around daily_checkin time           │
+│   (14:00),                                                                   │
+│   ///    checkout around daily_checkout (12:00 next day), spanning 1+ full   │
+│   days.                                                                      │
+│   ///                                                                        │
+│   /// 4. **Nightly** (fallback): multi-night stays without explicit time     │
+│   info,                                                                      │
+│   ///    or when date-only inputs span multiple calendar days.               │
+│   ///                                                                        │
+│   /// # Decision Cascade:                                                    │
+│   /// - If no explicit time → use `nightly` (safest for date-only            │
+│   bookings)                                                                  │
+│   /// - If duration ≤ MAX_HOURLY_HOURS → `hourly`                            │
+│   /// - If check-in is in evening window AND duration fits overnight →       │
+│   `overnight`                                                                │
+│   /// - If duration fits 1+ full calendar days → `daily`                     │
+│   /// - Otherwise → `nightly`                                                │
+│   ///                                                                        │
+│   pub fn decide_mode(rule: &PricingRule, check_in: &str, check_out: &str)    │
+│   -> DecideModeResult {                                                      │
+│       // ─── Parse inputs ───                                                │
+│       let ci_has_time = has_explicit_time(check_in);                         │
+│       let co_has_time = has_explicit_time(check_out);                        │
+│                                                                              │
+│       let ci = match parse_datetime(check_in) {                              │
+│           Some(dt) => dt,                                                    │
+│           None => {                                                          │
+│               return DecideModeResult {                                      │
+│                   mode: PricingMode::Nightly,                                │
+│                   reason: "Cannot parse check-in datetime; defaulting to     │
+│   nightly".into(),                                                           │
+│               };                                                             │
+│           }                                                                  │
+│       };                                                                     │
+│                                                                              │
+│       let co = match parse_datetime(check_out) {                             │
+│           Some(dt) => dt,                                                    │
+│           None => {                                                          │
+│               return DecideModeResult {                                      │
+│                   mode: PricingMode::Nightly,                                │
+│                   reason: "Cannot parse check-out datetime; defaulting to    │
+│   nightly".into(),                                                           │
+│               };                                                             │
+│           }                                                                  │
+│       };                                                                     │
+│                                                                              │
+│       // Invalid range: co <= ci                                             │
+│       if co <= ci {                                                          │
+│           return DecideModeResult {                                          │
+│               mode: PricingMode::Nightly,                                    │
+│               reason: "Check-out is not after check-in; defaulting to        │
+│   nightly".into(),                                                           │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Rule 1: No explicit time on either side → nightly (date-only    │
+│   booking) ───                                                               │
+│       if !ci_has_time && !co_has_time {                                      │
+│           return DecideModeResult {                                          │
+│               mode: PricingMode::Nightly,                                    │
+│               reason: "Date-only inputs (no time component); using nightly   │
+│   mode".into(),                                                              │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Compute duration & time-of-day signals ───                      │
+│       let duration_minutes = (co - ci).num_minutes();                        │
+│       let duration_hours_f = duration_minutes as f64 / 60.0;                 │
+│       let calendar_days = (co.date() - ci.date()).num_days();                │
+│                                                                              │
+│       let ci_time = ci.time();                                               │
+│       let co_time = co.time();                                               │
+│                                                                              │
+│       let overnight_start = parse_time(&rule.overnight_start);               │
+│       let overnight_end = parse_time(&rule.overnight_end);                   │
+│       let daily_checkin = parse_time(&rule.daily_checkin);                   │
+│       let daily_checkout = parse_time(&rule.daily_checkout);                 │
+│                                                                              │
+│       // Maximum hours before we stop considering "hourly" mode              │
+│       const MAX_HOURLY_HOURS: f64 = 6.0;                                     │
+│                                                                              │
+│       // Tolerance window: how many hours before overnight_start still       │
+│   counts                                                                     │
+│       // as "evening arrival" (e.g., arriving at 19:00 for a 22:00           │
+│   overnight start)                                                           │
+│       const OVERNIGHT_ARRIVAL_TOLERANCE_HOURS: i64 = 3;                      │
+│                                                                              │
+│       // ─── Rule 2: Short stay → hourly ───                                 │
+│       if duration_hours_f <= MAX_HOURLY_HOURS && calendar_days == 0 {        │
+│           return DecideModeResult {                                          │
+│               mode: PricingMode::Hourly,                                     │
+│               reason: format!(                                               │
+│                   "Duration {:.1}h ≤ {}h on same calendar day; using         │
+│   hourly mode",                                                              │
+│                   duration_hours_f, MAX_HOURLY_HOURS                         │
+│               ),                                                             │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Rule 3: Evening check-in + morning check-out → overnight ───    │
+│       // Check if check-in is in the "evening window" (overnight_start -     │
+│   tolerance → midnight)                                                      │
+│       let evening_window_start = overnight_start                             │
+│           - chrono::Duration::hours(OVERNIGHT_ARRIVAL_TOLERANCE_HOURS);      │
+│                                                                              │
+│       let is_evening_checkin = ci_time >= evening_window_start || ci_time    │
+│   < overnight_end;                                                           │
+│       let is_morning_checkout = co_time <= overnight_end                     │
+│           || co_time == NaiveTime::from_hms_opt(0, 0, 0).unwrap();           │
+│                                                                              │
+│       // Overnight: 1 calendar-day span, evening arrival, morning            │
+│   departure                                                                  │
+│       if calendar_days == 1 && is_evening_checkin && is_morning_checkout {   │
+│           return DecideModeResult {                                          │
+│               mode: PricingMode::Overnight,                                  │
+│               reason: format!(                                               │
+│                   "Evening check-in ({}) + morning check-out ({}) spanning   │
+│   1 night; using overnight mode",                                            │
+│                   ci_time.format("%H:%M"),                                   │
+│                   co_time.format("%H:%M")                                    │
+│               ),                                                             │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // Also handle the case where check-in is before midnight and          │
+│   checkout is same night                                                     │
+│       // (e.g., 23:00 → 07:00 same calendar day due to crossing midnight =   │
+│   0 calendar days                                                            │
+│       //  but actually it's still an overnight pattern)                      │
+│       if calendar_days == 0 && is_evening_checkin && duration_hours_f >      │
+│   MAX_HOURLY_HOURS {                                                         │
+│           // Same calendar day but evening + long duration = likely          │
+│   crossing midnight pattern                                                  │
+│           // However since co > ci and same day, this is a long evening      │
+│   session                                                                    │
+│           // Treat as overnight if ci is late enough                         │
+│           if ci_time >= evening_window_start {                               │
+│               return DecideModeResult {                                      │
+│                   mode: PricingMode::Overnight,                              │
+│                   reason: format!(                                           │
+│                       "Late evening check-in ({}) with duration {:.1}h >     │
+│   {}h; using overnight mode",                                                │
+│                       ci_time.format("%H:%M"),                               │
+│                       duration_hours_f,                                      │
+│                       MAX_HOURLY_HOURS                                       │
+│                   ),                                                         │
+│               };                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Rule 4: Multi-night overnight pattern ───                       │
+│       // Multiple nights with evening check-in and morning check-out         │
+│       if calendar_days > 1 && is_evening_checkin && is_morning_checkout {    │
+│           // Could be multi-night overnight (e.g., 3 nights)                 │
+│           // Use overnight if the pattern fits (arrival evening, depart      │
+│   morning)                                                                   │
+│           return DecideModeResult {                                          │
+│               mode: PricingMode::Overnight,                                  │
+│               reason: format!(                                               │
+│                   "Multi-night ({} nights) with evening check-in + morning   │
+│   check-out; using overnight mode",                                          │
+│                   calendar_days                                              │
+│               ),                                                             │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Rule 5: Daily pattern ───                                       │
+│       // Check-in around or after daily_checkin, check-out around or         │
+│   before daily_checkout                                                      │
+│       let is_daily_checkin_time = ci_time >= daily_checkin                   │
+│           || (ci_time >= daily_checkin - chrono::Duration::hours(1) &&       │
+│   ci_time < daily_checkin);                                                  │
+│       let is_daily_checkout_time = co_time <= daily_checkout                 │
+│           || (co_time > daily_checkout && co_time <= daily_checkout +        │
+│   chrono::Duration::hours(1));                                               │
+│                                                                              │
+│       if calendar_days >= 1 && is_daily_checkin_time &&                      │
+│   is_daily_checkout_time {                                                   │
+│           return DecideModeResult {                                          │
+│               mode: PricingMode::Daily,                                      │
+│               reason: format!(                                               │
+│                   "Check-in near daily_checkin ({}) + check-out near         │
+│   daily_checkout ({}); {} day(s); using daily mode",                         │
+│                   ci_time.format("%H:%M"),                                   │
+│                   co_time.format("%H:%M"),                                   │
+│                   calendar_days                                              │
+│               ),                                                             │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Rule 6: Long single-day stay (> MAX_HOURLY but doesn't match    │
+│   overnight/daily) ───                                                       │
+│       if calendar_days == 0 && duration_hours_f > MAX_HOURLY_HOURS {         │
+│           // Daytime long stay — charge hourly (will be capped by            │
+│   calculate_hourly if needed)                                                │
+│           return DecideModeResult {                                          │
+│               mode: PricingMode::Hourly,                                     │
+│               reason: format!(                                               │
+│                   "Same-day stay of {:.1}h (daytime, no overnight/daily      │
+│   pattern match); using hourly with auto-cap",                               │
+│                   duration_hours_f                                           │
+│               ),                                                             │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Rule 7: Multi-day stay with unclear time pattern → daily ───    │
+│       if calendar_days >= 1 && (ci_has_time || co_has_time) {                │
+│           return DecideModeResult {                                          │
+│               mode: PricingMode::Daily,                                      │
+│               reason: format!(                                               │
+│                   "Multi-day stay ({} days) with time info but no specific   │
+│   pattern match; using daily mode",                                          │
+│                   calendar_days                                              │
+│               ),                                                             │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Fallback: nightly ───                                           │
+│       DecideModeResult {                                                     │
+│           mode: PricingMode::Nightly,                                        │
+│           reason: "No specific pattern matched; defaulting to nightly        │
+│   mode".into(),                                                              │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Convenience function: auto-detect mode and calculate price in one      │
+│   call.                                                                      │
+│   /// Use when the frontend doesn't specify a pricing type (e.g., "auto"     │
+│   or empty string).                                                          │
+│   pub fn calculate_price_auto(                                               │
+│       rule: &PricingRule,                                                    │
+│       check_in: &str,                                                        │
+│       check_out: &str,                                                       │
+│       special_dates_uplift: f64,                                             │
+│   ) -> Result<PricingResult, String> {                                       │
+│       let decision = decide_mode(rule, check_in, check_out);                 │
+│       calculate_price(rule, check_in, check_out, decision.mode.as_str(),     │
+│   special_dates_uplift)                                                      │
+│   }                                                                          │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Unit Tests for decide_mode                                              │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod decide_mode_tests {                                                    │
+│       use super::*;                                                          │
+│                                                                              │
+│       fn rule() -> PricingRule {                                             │
+│           PricingRule {                                                      │
+│               room_type: "standard".to_string(),                             │
+│               hourly_rate: 80_000,                                           │
+│               overnight_rate: 300_000,                                       │
+│               daily_rate: 400_000,                                           │
+│               overnight_start: "22:00".to_string(),                          │
+│               overnight_end: "11:00".to_string(),                            │
+│               daily_checkin: "14:00".to_string(),                            │
+│               daily_checkout: "12:00".to_string(),                           │
+│               early_checkin_surcharge_pct: 30.0,                             │
+│               late_checkout_surcharge_pct: 30.0,                             │
+│               weekend_uplift_pct: 0.0,                                       │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Date-only → nightly ───                                         │
+│                                                                              │
+│       #[test]                                                                │
+│       fn date_only_returns_nightly() {                                       │
+│           let r = decide_mode(&rule(), "2026-03-17", "2026-03-19");          │
+│           assert_eq!(r.mode, PricingMode::Nightly);                          │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Short stay same day → hourly ───                                │
+│                                                                              │
+│       #[test]                                                                │
+│       fn short_2h_same_day_returns_hourly() {                                │
+│           let r = decide_mode(&rule(), "2026-03-17T10:00:00",                │
+│   "2026-03-17T12:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Hourly);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn short_5h_same_day_returns_hourly() {                                │
+│           let r = decide_mode(&rule(), "2026-03-17T08:00:00",                │
+│   "2026-03-17T13:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Hourly);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn exactly_6h_same_day_returns_hourly() {                              │
+│           let r = decide_mode(&rule(), "2026-03-17T06:00:00",                │
+│   "2026-03-17T12:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Hourly);                           │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Evening to morning → overnight ───                              │
+│                                                                              │
+│       #[test]                                                                │
+│       fn evening_to_morning_returns_overnight() {                            │
+│           // 22:00 → 11:00 next day (standard overnight)                     │
+│           let r = decide_mode(&rule(), "2026-03-17T22:00:00",                │
+│   "2026-03-18T11:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Overnight);                        │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn evening_early_arrival_returns_overnight() {                         │
+│           // 19:00 (within 3h tolerance) → 10:00 next day                    │
+│           let r = decide_mode(&rule(), "2026-03-17T19:00:00",                │
+│   "2026-03-18T10:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Overnight);                        │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn evening_to_late_morning_returns_overnight() {                       │
+│           // 21:00 → 11:00 next day                                          │
+│           let r = decide_mode(&rule(), "2026-03-17T21:00:00",                │
+│   "2026-03-18T11:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Overnight);                        │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn multi_night_overnight_pattern() {                                   │
+│           // 22:00 → 10:00 two days later (2 nights)                         │
+│           let r = decide_mode(&rule(), "2026-03-17T22:00:00",                │
+│   "2026-03-19T10:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Overnight);                        │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Standard daily pattern ───                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn daily_checkin_to_checkout_returns_daily() {                         │
+│           // 14:00 → 12:00 next day                                          │
+│           let r = decide_mode(&rule(), "2026-03-17T14:00:00",                │
+│   "2026-03-18T12:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Daily);                            │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn daily_checkin_early_by_1h_returns_daily() {                         │
+│           // 13:00 (within tolerance) → 12:00 next day                       │
+│           let r = decide_mode(&rule(), "2026-03-17T13:00:00",                │
+│   "2026-03-18T12:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Daily);                            │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn multi_day_daily_pattern() {                                         │
+│           // 14:00 → 12:00 three days later                                  │
+│           let r = decide_mode(&rule(), "2026-03-17T14:00:00",                │
+│   "2026-03-20T12:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Daily);                            │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Long same-day stay → hourly (with auto-cap) ───                 │
+│                                                                              │
+│       #[test]                                                                │
+│       fn long_same_day_daytime_returns_hourly() {                            │
+│           // 08:00 → 16:00 (8h, same day, daytime)                           │
+│           let r = decide_mode(&rule(), "2026-03-17T08:00:00",                │
+│   "2026-03-17T16:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Hourly);                           │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Late evening same day (> 6h) → overnight ───                    │
+│                                                                              │
+│       #[test]                                                                │
+│       fn late_evening_long_stay_returns_overnight() {                        │
+│           // 20:00 → 03:00 next day would cross midnight.                    │
+│           // But if same date (which can't happen if co > ci), so:           │
+│           // 19:00 same day + 8h = still same day? No, that's 03:00 next     │
+│   day.                                                                       │
+│           // Let's use actual cross-day:                                     │
+│           let r = decide_mode(&rule(), "2026-03-17T20:00:00",                │
+│   "2026-03-18T06:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Overnight);                        │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Edge cases ───                                                  │
+│                                                                              │
+│       #[test]                                                                │
+│       fn invalid_checkin_returns_nightly() {                                 │
+│           let r = decide_mode(&rule(), "not-a-date",                         │
+│   "2026-03-18T12:00:00");                                                    │
+│           assert_eq!(r.mode, PricingMode::Nightly);                          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn checkout_before_checkin_returns_nightly() {                         │
+│           let r = decide_mode(                                               │
+│               &rule(),                                                       │
+│               "2026-03-18T14:00:00",                                         │
+│               "2026-03-17T12:00:00",                                         │
+│           );                                                                 │
+│           assert_eq!(r.mode, PricingMode::Nightly);                          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn mixed_time_one_date_only_falls_through() {                          │
+│           // ci has time, co is date-only                                    │
+│           let r = decide_mode(&rule(), "2026-03-17T14:00:00",                │
+│   "2026-03-18");                                                             │
+│           // co parses to 00:00, ci is 14:00 → calendar_days = 1             │
+│           // ci_time 14:00 >= daily_checkin 14:00 ✓                          │
+│           // co_time 00:00 <= daily_checkout 12:00 ✓                         │
+│           // But co_has_time is false, so we have ci_has_time=true,          │
+│   co_has_time=false                                                          │
+│           // The function still proceeds since at least one has time         │
+│           assert!(                                                           │
+│               r.mode == PricingMode::Daily || r.mode ==                      │
+│   PricingMode::Overnight,                                                    │
+│               "Should pick daily or overnight based on pattern, got:         │
+│   {:?}",                                                                     │
+│               r.mode                                                         │
+│           );                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       // ─── Integration: calculate_price_auto ───                           │
+│                                                                              │
+│       #[test]                                                                │
+│       fn auto_pricing_short_stay() {                                         │
+│           let result = calculate_price_auto(                                 │
+│               &rule(),                                                       │
+│               "2026-03-17T10:00:00",                                         │
+│               "2026-03-17T12:00:00",                                         │
+│               0.0,                                                           │
+│           )                                                                  │
+│           .unwrap();                                                         │
+│           assert_eq!(result.pricing_type, "hourly");                         │
+│           assert_eq!(result.total, 160_000); // 2h x 80k                     │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn auto_pricing_overnight_stay() {                                     │
+│           let result = calculate_price_auto(                                 │
+│               &rule(),                                                       │
+│               "2026-03-17T22:00:00",                                         │
+│               "2026-03-18T11:00:00",                                         │
+│               0.0,                                                           │
+│           )                                                                  │
+│           .unwrap();                                                         │
+│           assert_eq!(result.pricing_type, "overnight");                      │
+│           assert_eq!(result.base_amount, 300_000);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn auto_pricing_daily_stay() {                                         │
+│           let result = calculate_price_auto(                                 │
+│               &rule(),                                                       │
+│               "2026-03-17T14:00:00",                                         │
+│               "2026-03-18T12:00:00",                                         │
+│               0.0,                                                           │
+│           )                                                                  │
+│           .unwrap();                                                         │
+│           assert_eq!(result.pricing_type, "daily");                          │
+│           assert_eq!(result.base_amount, 400_000);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn auto_pricing_date_only() {                                          │
+│           let result = calculate_price_auto(&rule(), "2026-03-17",           │
+│   "2026-03-19", 0.0).unwrap();                                               │
+│           assert_eq!(result.pricing_type, "nightly");                        │
+│           assert_eq!(result.base_amount, 800_000); // 2 nights x 400k        │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│  Vị trí file:                                                                │
+│                                                                              │
+│                                                                              │
+│   mhm/src-tauri/src/pricing.rs                                               │
+│                                                                              │
+│                                                                              │
+│  Cách gắn:                                                                   │
+│                                                                              │
+│  Bước 1: Mở file mhm/src-tauri/src/pricing.rs                                │
+│                                                                              │
+│  Bước 2: Thêm PricingMode enum, DecideModeResult struct, decide_mode()       │
+│  function và calculate_price_auto() function SAU hàm calculate_price()       │
+│  (dòng ~95) và TRƯỚC phần // ─── Helpers ─── section.                        │
+│                                                                              │
+│  Bước 3: Thêm module test decide_mode_tests vào cuối file (sau block         │
+│  #[cfg(test)] mod tests).                                                    │
+│                                                                              │
+│  Bước 4: Export từ lib.rs — mở mhm/src-tauri/src/lib.rs và đảm bảo pricing   │
+│  module được re-export:                                                      │
+│                                                                              │
+│                                                                              │
+│   // Trong lib.rs, thêm nếu chưa có:                                         │
+│   pub mod pricing;                                                           │
+│                                                                              │
+│   // Hoặc nếu đã có, thêm re-export cho public API mới:                      │
+│   pub use pricing::{decide_mode, calculate_price_auto, PricingMode,          │
+│   DecideModeResult};                                                         │
+│                                                                              │
+│                                                                              │
+│  Bước 5: Update Tauri IPC command (nếu cần expose ra frontend) — tạo/update  │
+│  file mhm/src-tauri/src/commands/pricing_commands.rs:                        │
+│                                                                              │
+│                                                                              │
+│   use tauri::command;                                                        │
+│   use crate::pricing::{decide_mode, calculate_price_auto, PricingRule,       │
+│   PricingResult, DecideModeResult};                                          │
+│                                                                              │
+│   #[command]                                                                 │
+│   pub fn cmd_decide_mode(                                                    │
+│       rule: PricingRule,                                                     │
+│       check_in: String,                                                      │
+│       check_out: String,                                                     │
+│   ) -> DecideModeResult {                                                    │
+│       decide_mode(&rule, &check_in, &check_out)                              │
+│   }                                                                          │
+│                                                                              │
+│   #[command]                                                                 │
+│   pub fn cmd_calculate_price_auto(                                           │
+│       rule: PricingRule,                                                     │
+│       check_in: String,                                                      │
+│       check_out: String,                                                     │
+│       special_dates_uplift: f64,                                             │
+│   ) -> Result<PricingResult, String> {                                       │
+│       calculate_price_auto(&rule, &check_in, &check_out,                     │
+│   special_dates_uplift)                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  Bước 6: Verify:                                                             │
+│                                                                              │
+│                                                                              │
+│   cd CapyInn/mhm                                                             │
+│   cargo check --manifest-path src-tauri/Cargo.toml                           │
+│   cargo test --manifest-path src-tauri/Cargo.toml -- decide_mode             │
+│   cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D      │
+│   warnings                                                                   │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Luồng nghiệp vụ (Business Logic Summary)                                    │
+│                                                                              │
+│                                                                              │
+│   Tín hiệu đầu vào            Mode được chọn  Lý do                          │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   Chỉ có ngày (date-only,     nightly         Không đủ thông tin thời gian   │
+│   không có giờ)                               → tính theo đêm an toàn nhất   │
+│   Cùng ngày, ≤ 6 giờ          hourly          Khách thuê giờ (nghỉ trưa,     │
+│                                               meeting)                       │
+│   Check-in buổi tối           overnight       Pattern "qua đêm" điển hình    │
+│   (19:00-23:59), check-out                    VN                             │
+│   sáng hôm sau (≤ 11:00)                                                     │
+│   Check-in ~14:00, check-out  daily           Pattern "theo ngày" chuẩn      │
+│   ~12:00 hôm sau                              khách sạn                      │
+│   Cùng ngày nhưng > 6h (ban   hourly          Thuê giờ dài, sẽ được          │
+│   ngày)                                       auto-cap bởi                   │
+│                                               calculate_hourly               │
+│   Multi-day có thời gian      daily           Fallback hợp lý cho            │
+│   nhưng không match pattern                   multi-day                      │
+│   cụ thể                                                                     │
+│   Mọi trường hợp khác         nightly         Fallback an toàn cuối cùng     │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

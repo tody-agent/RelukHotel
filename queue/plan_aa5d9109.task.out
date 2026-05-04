@@ -1,0 +1,328 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│                                                                              │
+│   // src/features/pricing/components/LateCheckoutMaxWarning.tsx              │
+│   import React, { useMemo } from 'react';                                    │
+│                                                                              │
+│   export type LateCheckoutMaxWarningProps = {                                │
+│     actualCheckoutAt?: string | Date | null;                                 │
+│     standardCheckoutAt?: string | Date | null;                               │
+│     lateCheckoutMaxMinutes?: number | null;                                  │
+│     dayPrice?: number | null;                                                │
+│     currency?: string;                                                       │
+│     className?: string;                                                      │
+│   };                                                                         │
+│                                                                              │
+│   function toDate(value?: string | Date | null): Date | null {               │
+│     if (!value) return null;                                                 │
+│     const date = value instanceof Date ? value : new Date(value);            │
+│     return Number.isNaN(date.getTime()) ? null : date;                       │
+│   }                                                                          │
+│                                                                              │
+│   function formatCurrencyVND(amount: number, currency = 'VND') {             │
+│     try {                                                                    │
+│       return new Intl.NumberFormat('vi-VN', {                                │
+│         style: 'currency',                                                   │
+│         currency,                                                            │
+│         maximumFractionDigits: 0,                                            │
+│       }).format(amount);                                                     │
+│     } catch {                                                                │
+│       return `${amount.toLocaleString('vi-VN')} ${currency}`;                │
+│     }                                                                        │
+│   }                                                                          │
+│                                                                              │
+│   function formatMinutes(minutes: number) {                                  │
+│     const hrs = Math.floor(minutes / 60);                                    │
+│     const mins = minutes % 60;                                               │
+│                                                                              │
+│     if (hrs > 0 && mins > 0) return `${hrs} giờ ${mins} phút`;               │
+│     if (hrs > 0) return `${hrs} giờ`;                                        │
+│     return `${mins} phút`;                                                   │
+│   }                                                                          │
+│                                                                              │
+│   /**                                                                        │
+│    * Business flow:                                                          │
+│    * - Nếu actualCheckoutAt <= standardCheckoutAt: không warning             │
+│    * - Nếu quá giờ check-out nhưng chưa vượt lateCheckoutMaxMinutes: không   │
+│   warning ở task này                                                         │
+│    * - Nếu số phút trễ > lateCheckoutMaxMinutes: hiển thị warning rằng sẽ    │
+│   tính 100% giá ngày                                                         │
+│    */                                                                        │
+│   export default function LateCheckoutMaxWarning({                           │
+│     actualCheckoutAt,                                                        │
+│     standardCheckoutAt,                                                      │
+│     lateCheckoutMaxMinutes,                                                  │
+│     dayPrice,                                                                │
+│     currency = 'VND',                                                        │
+│     className = '',                                                          │
+│   }: LateCheckoutMaxWarningProps) {                                          │
+│     const state = useMemo(() => {                                            │
+│       const actual = toDate(actualCheckoutAt);                               │
+│       const standard = toDate(standardCheckoutAt);                           │
+│                                                                              │
+│       if (!actual || !standard || lateCheckoutMaxMinutes == null ||          │
+│   lateCheckoutMaxMinutes < 0) {                                              │
+│         return {                                                             │
+│           show: false,                                                       │
+│           lateMinutes: 0,                                                    │
+│           exceededMinutes: 0,                                                │
+│         };                                                                   │
+│       }                                                                      │
+│                                                                              │
+│       const lateMinutes = Math.max(                                          │
+│         0,                                                                   │
+│         Math.floor((actual.getTime() - standard.getTime()) / 60000),         │
+│       );                                                                     │
+│                                                                              │
+│       const exceededMinutes = lateMinutes - lateCheckoutMaxMinutes;          │
+│       const show = lateMinutes > lateCheckoutMaxMinutes;                     │
+│                                                                              │
+│       return {                                                               │
+│         show,                                                                │
+│         lateMinutes,                                                         │
+│         exceededMinutes: Math.max(0, exceededMinutes),                       │
+│       };                                                                     │
+│     }, [actualCheckoutAt, standardCheckoutAt, lateCheckoutMaxMinutes]);      │
+│                                                                              │
+│     if (!state.show) return null;                                            │
+│                                                                              │
+│     return (                                                                 │
+│       <div                                                                   │
+│         className={[                                                         │
+│           'rounded-xl border border-amber-300 bg-amber-50 px-4 py-3          │
+│   text-amber-900',                                                           │
+│           className,                                                         │
+│         ].join(' ')}                                                         │
+│         role="alert"                                                         │
+│         aria-live="polite"                                                   │
+│       >                                                                      │
+│         <div className="flex items-start gap-3">                             │
+│           <div className="mt-0.5 text-lg leading-none">⚠️</div>               │
+│                                                                              │
+│           <div className="min-w-0 flex-1">                                   │
+│             <div className="font-semibold">                                  │
+│               Late check-out vượt ngưỡng tối đa                              │
+│             </div>                                                           │
+│                                                                              │
+│             <div className="mt-1 text-sm leading-6">                         │
+│               Khách đã trả phòng trễ{' '}                                    │
+│               <strong>{formatMinutes(state.lateMinutes)}</strong>, vượt      │
+│   ngưỡng late                                                                │
+│               check-out tối đa                                               │
+│   <strong>{formatMinutes(lateCheckoutMaxMinutes!)}</strong>.                 │
+│             </div>                                                           │
+│                                                                              │
+│             <div className="mt-1 text-sm leading-6">                         │
+│               Hệ thống sẽ tính <strong>100% giá ngày</strong>                │
+│               {typeof dayPrice === 'number'                                  │
+│                 ? (                                                          │
+│                   <>                                                         │
+│                     {' '}= <strong>{formatCurrencyVND(dayPrice,              │
+│   currency)}</strong>                                                        │
+│                   </>                                                        │
+│                 )                                                            │
+│                 : null}                                                      │
+│               .                                                              │
+│             </div>                                                           │
+│           </div>                                                             │
+│         </div>                                                               │
+│       </div>                                                                 │
+│     );                                                                       │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // Ví dụ dùng trong màn hình sử dụng / pricing form / booking detail       │
+│   // src/features/pricing/components/StayUsageSection.tsx                    │
+│   import React from 'react';                                                 │
+│   import LateCheckoutMaxWarning from './LateCheckoutMaxWarning';             │
+│                                                                              │
+│   type StayUsageSectionProps = {                                             │
+│     actualCheckoutAt?: string | Date | null;                                 │
+│     standardCheckoutAt?: string | Date | null;                               │
+│     lateCheckoutMaxMinutes?: number | null;                                  │
+│     dayPrice?: number | null;                                                │
+│   };                                                                         │
+│                                                                              │
+│   export default function StayUsageSection(props: StayUsageSectionProps) {   │
+│     return (                                                                 │
+│       <section className="space-y-4">                                        │
+│         {/* các field khác của màn hình */}                                  │
+│                                                                              │
+│         <LateCheckoutMaxWarning                                              │
+│           actualCheckoutAt={props.actualCheckoutAt}                          │
+│           standardCheckoutAt={props.standardCheckoutAt}                      │
+│           lateCheckoutMaxMinutes={props.lateCheckoutMaxMinutes}              │
+│           dayPrice={props.dayPrice}                                          │
+│         />                                                                   │
+│       </section>                                                             │
+│     );                                                                       │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // Nếu muốn tách riêng utility để tái sử dụng với logic UI khác            │
+│   // src/features/pricing/utils/lateCheckout.ts                              │
+│   export function getLateCheckoutMaxWarning(params: {                        │
+│     actualCheckoutAt?: string | Date | null;                                 │
+│     standardCheckoutAt?: string | Date | null;                               │
+│     lateCheckoutMaxMinutes?: number | null;                                  │
+│   }) {                                                                       │
+│     const toDate = (value?: string | Date | null): Date | null => {          │
+│       if (!value) return null;                                               │
+│       const date = value instanceof Date ? value : new Date(value);          │
+│       return Number.isNaN(date.getTime()) ? null : date;                     │
+│     };                                                                       │
+│                                                                              │
+│     const actual = toDate(params.actualCheckoutAt);                          │
+│     const standard = toDate(params.standardCheckoutAt);                      │
+│                                                                              │
+│     if (!actual || !standard || params.lateCheckoutMaxMinutes == null ||     │
+│   params.lateCheckoutMaxMinutes < 0) {                                       │
+│       return {                                                               │
+│         show: false,                                                         │
+│         lateMinutes: 0,                                                      │
+│         exceededMinutes: 0,                                                  │
+│       };                                                                     │
+│     }                                                                        │
+│                                                                              │
+│     const lateMinutes = Math.max(                                            │
+│       0,                                                                     │
+│       Math.floor((actual.getTime() - standard.getTime()) / 60000),           │
+│     );                                                                       │
+│                                                                              │
+│     return {                                                                 │
+│       show: lateMinutes > params.lateCheckoutMaxMinutes,                     │
+│       lateMinutes,                                                           │
+│       exceededMinutes: Math.max(0, lateMinutes -                             │
+│   params.lateCheckoutMaxMinutes),                                            │
+│     };                                                                       │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // Nếu project đang dùng shadcn/ui Alert, dùng version này thay cho div    │
+│   thuần                                                                      │
+│   // src/features/pricing/components/LateCheckoutMaxWarningShadcn.tsx        │
+│   import React from 'react';                                                 │
+│   import { Alert, AlertDescription, AlertTitle } from                        │
+│   '@/components/ui/alert';                                                   │
+│                                                                              │
+│   type Props = {                                                             │
+│     visible: boolean;                                                        │
+│     lateMinutes: number;                                                     │
+│     lateCheckoutMaxMinutes: number;                                          │
+│     dayPrice?: number | null;                                                │
+│     currency?: string;                                                       │
+│   };                                                                         │
+│                                                                              │
+│   function formatCurrencyVND(amount: number, currency = 'VND') {             │
+│     try {                                                                    │
+│       return new Intl.NumberFormat('vi-VN', {                                │
+│         style: 'currency',                                                   │
+│         currency,                                                            │
+│         maximumFractionDigits: 0,                                            │
+│       }).format(amount);                                                     │
+│     } catch {                                                                │
+│       return `${amount.toLocaleString('vi-VN')} ${currency}`;                │
+│     }                                                                        │
+│   }                                                                          │
+│                                                                              │
+│   function formatMinutes(minutes: number) {                                  │
+│     const hrs = Math.floor(minutes / 60);                                    │
+│     const mins = minutes % 60;                                               │
+│     if (hrs > 0 && mins > 0) return `${hrs} giờ ${mins} phút`;               │
+│     if (hrs > 0) return `${hrs} giờ`;                                        │
+│     return `${mins} phút`;                                                   │
+│   }                                                                          │
+│                                                                              │
+│   export default function LateCheckoutMaxWarningShadcn({                     │
+│     visible,                                                                 │
+│     lateMinutes,                                                             │
+│     lateCheckoutMaxMinutes,                                                  │
+│     dayPrice,                                                                │
+│     currency = 'VND',                                                        │
+│   }: Props) {                                                                │
+│     if (!visible) return null;                                               │
+│                                                                              │
+│     return (                                                                 │
+│       <Alert className="border-amber-300 bg-amber-50 text-amber-900">        │
+│         <AlertTitle>⚠️ Late check-out vượt ngưỡng tối đa</AlertTitle>         │
+│         <AlertDescription className="mt-2 space-y-1">                        │
+│           <div>                                                              │
+│             Khách đã trả phòng trễ                                           │
+│   <strong>{formatMinutes(lateMinutes)}</strong>,                             │
+│             vượt ngưỡng tối đa                                               │
+│   <strong>{formatMinutes(lateCheckoutMaxMinutes)}</strong>.                  │
+│           </div>                                                             │
+│           <div>                                                              │
+│             Hệ thống sẽ tính <strong>100% giá ngày</strong>                  │
+│             {typeof dayPrice === 'number' ? (                                │
+│               <> = <strong>{formatCurrencyVND(dayPrice,                      │
+│   currency)}</strong></>                                                     │
+│             ) : null}                                                        │
+│             .                                                                │
+│           </div>                                                             │
+│         </AlertDescription>                                                  │
+│       </Alert>                                                               │
+│     );                                                                       │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   HƯỚNG DẪN GẮN CODE                                                         │
+│                                                                              │
+│   1. Tạo component:                                                          │
+│   - File: `src/features/pricing/components/LateCheckoutMaxWarning.tsx`       │
+│   - Dán block code `LateCheckoutMaxWarning.tsx`                              │
+│                                                                              │
+│   2. Gắn vào màn hình sử dụng:                                               │
+│   - Ở form / detail booking / màn check-out, import:                         │
+│     `import LateCheckoutMaxWarning from                                      │
+│   '@/features/pricing/components/LateCheckoutMaxWarning';`                   │
+│                                                                              │
+│   - Render ngay dưới cụm input thời gian check-out thực tế hoặc dưới phần    │
+│   breakdown giá:                                                             │
+│   ```tsx                                                                     │
+│   <LateCheckoutMaxWarning                                                    │
+│     actualCheckoutAt={form.watch('actualCheckoutAt')}                        │
+│     standardCheckoutAt={form.watch('standardCheckoutAt')}                    │
+│     lateCheckoutMaxMinutes={pricingPolicy.lateCheckoutMaxMinutes}            │
+│     dayPrice={priceSummary.dayPrice}                                         │
+│   />                                                                         │
+│                                                                              │
+│                                                                              │
+│   3 Mapping nghiệp vụ:                                                       │
+│                                                                              │
+│   • standardCheckoutAt: giờ check-out chuẩn của booking/ngày hiện tại        │
+│   • actualCheckoutAt: giờ khách check-out thực tế                            │
+│   • lateCheckoutMaxMinutes: ngưỡng late check-out tối đa, quá ngưỡng này     │
+│     thì tính 100% giá ngày                                                   │
+│   • dayPrice: đơn giá 1 ngày để hiển thị số tiền warning                     │
+│                                                                              │
+│   4 Rule đã implement:                                                       │
+│                                                                              │
+│   • Không trễ hoặc dữ liệu thiếu → không hiện warning                        │
+│   • Trễ nhưng chưa vượt lateCheckoutMaxMinutes → không hiện warning của      │
+│     task này                                                                 │
+│   • Trễ vượt lateCheckoutMaxMinutes → hiện warning “tính 100% giá ngày”      │
+│                                                                              │
+│   5 Nếu project có design system:                                            │
+│                                                                              │
+│   • Giữ nguyên logic                                                         │
+│   • Đổi phần JSX container sang Alert/Banner/Callout của hệ thống UI là      │
+│     được                                                                     │
+│                                                                              │
+│   6 Nếu muốn reuse logic:                                                    │
+│                                                                              │
+│   • Tạo thêm file src/features/pricing/utils/lateCheckout.ts                 │
+│   • Dán block utility getLateCheckoutMaxWarning                              │
+│   • Dùng utility để feed vào component hiện có                               │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

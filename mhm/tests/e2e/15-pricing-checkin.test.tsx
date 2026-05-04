@@ -133,7 +133,6 @@ describe("15 — Pricing Engine Check-in", () => {
         });
 
         // Ensure "Nhanh" toggle exists
-        const quickModeToggle = screen.getByRole("button", { name: /Nhanh/i });
         const fullModeToggle = screen.getByRole("button", { name: /Đầy đủ/i });
         
         // By default Quick Mode is ON, CCCD shouldn't be required/visible

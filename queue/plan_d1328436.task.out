@@ -1,0 +1,92 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│             TASK 8: Frontend — Calculator panel breakdown [5.2]              │
+│                                                                              │
+│  Trước khi thực hiện thay đổi, tôi cần xem file hiện tại để hiểu context     │
+│  xung quanh dòng 447-456:Tôi không thể truy cập trực tiếp file system. Dựa   │
+│  trên thông tin task đã cung cấp, đây là hướng dẫn thay đổi cụ thể:          │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File to edit: mhm/src/components/CheckinSheet.tsx                           │
+│                                                                              │
+│  Thay đổi cần thực hiện                                                      │
+│                                                                              │
+│  Thay thế block hiển thị total (dòng 447-456) bằng đoạn code sau:            │
+│                                                                              │
+│                                                                              │
+│   {pricingPreview && (                                                       │
+│     <div className="bg-slate-50 rounded-xl p-3 space-y-1.5">                 │
+│       {pricingPreview.line_items.map((item, i) => (                          │
+│         <div key={i} className="flex justify-between text-xs                 │
+│   text-brand-muted">                                                         │
+│           <span>{item.description}</span>                                    │
+│           <span className="tabular-nums">{fmtMoney(item.amount)}</span>      │
+│         </div>                                                               │
+│       ))}                                                                    │
+│       <div className="border-t border-slate-200 pt-1.5 flex                  │
+│   justify-between">                                                          │
+│         <span className="text-sm font-bold text-brand-text">Tổng             │
+│   cộng</span>                                                                │
+│         <span className="text-base font-bold text-emerald-600                │
+│   tabular-nums">                                                             │
+│           {fmtMoney(pricingPreview.room_subtotal)}                           │
+│         </span>                                                              │
+│       </div>                                                                 │
+│     </div>                                                                   │
+│   )}                                                                         │
+│                                                                              │
+│                                                                              │
+│  Kiểm tra trước khi áp dụng                                                  │
+│                                                                              │
+│  Đảm bảo các điều kiện sau đã đúng trong file CheckinSheet.tsx:              │
+│                                                                              │
+│   1 fmtMoney đã được import — theo task description, nó đã có sẵn từ         │
+│     @/lib/format:                                                            │
+│                                                                              │
+│      import { fmtMoney } from "@/lib/format";                                │
+│                                                                              │
+│   2 pricingPreview đã có trong scope — biến này nên đến từ state hoặc hook   │
+│     đã tồn tại trong component (ví dụ từ invoke('pricing_preview', ...)      │
+│     hoặc từ Zustand store).                                                  │
+│   3 Type pricingPreview cần match cấu trúc sau (đã được định nghĩa ở đâu đó  │
+│     trong project types):                                                    │
+│                                                                              │
+│      interface PricingLineItem {                                             │
+│        description: string;                                                  │
+│        amount: number;                                                       │
+│      }                                                                       │
+│                                                                              │
+│      interface PricingPreview {                                              │
+│        line_items: PricingLineItem[];                                        │
+│        room_subtotal: number;                                                │
+│        currency: string;                                                     │
+│      }                                                                       │
+│                                                                              │
+│                                                                              │
+│  Giải thích logic                                                            │
+│                                                                              │
+│  Đoạn code này render một breakdown panel trong footer của CheckinSheet:     │
+│                                                                              │
+│   • Iterates qua pricingPreview.line_items — mỗi item là một dòng chi tiết   │
+│     (ví dụ: "2 đêm × 350.000đ", "Check-out muộn 2h", "Extra bed 1 người × 2  │
+│     đêm").                                                                   │
+│   • Mỗi dòng hiển thị description bên trái và amount (formatted) bên phải.   │
+│   • Cuối cùng có đường kẻ separator (border-t) và dòng Tổng cộng hiển thị    │
+│     room_subtotal với font lớn hơn, bold, màu emerald-600.                   │
+│                                                                              │
+│  Chạy test gate                                                              │
+│                                                                              │
+│  Sau khi áp dụng thay đổi, chạy:                                             │
+│                                                                              │
+│                                                                              │
+│   ./scripts/test_gate.sh                                                     │
+│                                                                              │
+│                                                                              │
+│  Nếu có test failure liên quan đến DOM rendering (ví dụ test snapshot cũ     │
+│  expect block total cũ), cần cập nhật test tương ứng để expect cấu trúc mới  │
+│  với class bg-slate-50 rounded-xl và text "Tổng cộng".                       │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

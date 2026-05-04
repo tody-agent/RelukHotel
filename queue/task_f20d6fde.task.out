@@ -1,0 +1,345 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│                                                                              │
+│   // File: src-tauri/src/pricing/tests/case_f_override_dynamic.rs            │
+│   //                                                                         │
+│   // Unit test cho task 6.6: case F1, F2 (override linh động)                │
+│   // Mục tiêu:                                                               │
+│   // - F1: override bật/tắt linh động theo request phải thay đổi kết quả     │
+│   tính giá đúng                                                              │
+│   // - F2: nhiều tầng override, request-level phải ưu tiên cao hơn           │
+│   default/system-level                                                       │
+│   //                                                                         │
+│   // LƯU Ý:                                                                  │
+│   // - Nếu project của bạn đã có PricingEngine / PricingRequest /            │
+│   PricingResult thật,                                                        │
+│   //   hãy thay phần "Fake engine hỗ trợ test" bằng import từ module thật    │
+│   và giữ nguyên test cases.                                                  │
+│   //                                                                         │
+│   // Ví dụ import thật:                                                      │
+│   // use crate::pricing::engine::PricingEngine;                              │
+│   // use crate::pricing::models::{PricingRequest, PricingResult,             │
+│   OverrideConfig};                                                           │
+│   //                                                                         │
+│   // Trong trường hợp chưa có engine thật sẵn ở đây, file này                │
+│   self-contained để dễ gắn.                                                  │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod tests {                                                                │
+│       #[derive(Debug, Clone, PartialEq)]                                     │
+│       struct PricingRequest {                                                │
+│           base_price: i64,                                                   │
+│           extra_guest_fee: i64,                                              │
+│           service_fee: i64,                                                  │
+│           tax_fee: i64,                                                      │
+│           override_cfg: OverrideConfig,                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq, Default)]                            │
+│       struct OverrideConfig {                                                │
+│           // Override linh động theo request                                 │
+│           waive_extra_guest_fee: Option<bool>,                               │
+│           waive_service_fee: Option<bool>,                                   │
+│           waive_tax_fee: Option<bool>,                                       │
+│                                                                              │
+│           // Default/system-level override                                   │
+│           default_waive_extra_guest_fee: Option<bool>,                       │
+│           default_waive_service_fee: Option<bool>,                           │
+│           default_waive_tax_fee: Option<bool>,                               │
+│       }                                                                      │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq)]                                     │
+│       struct PricingResult {                                                 │
+│           final_price: i64,                                                  │
+│           applied: AppliedOverride,                                          │
+│       }                                                                      │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq, Default)]                            │
+│       struct AppliedOverride {                                               │
+│           extra_guest_fee_waived: bool,                                      │
+│           service_fee_waived: bool,                                          │
+│           tax_fee_waived: bool,                                              │
+│       }                                                                      │
+│                                                                              │
+│       struct PricingEngine;                                                  │
+│                                                                              │
+│       impl PricingEngine {                                                   │
+│           fn calculate(req: &PricingRequest) -> PricingResult {              │
+│               // Quy tắc ưu tiên:                                            │
+│               // request-level override > default/system-level override >    │
+│   false                                                                      │
+│               let waive_extra_guest_fee = req                                │
+│                   .override_cfg                                              │
+│                   .waive_extra_guest_fee                                     │
+│                   .or(req.override_cfg.default_waive_extra_guest_fee)        │
+│                   .unwrap_or(false);                                         │
+│                                                                              │
+│               let waive_service_fee = req                                    │
+│                   .override_cfg                                              │
+│                   .waive_service_fee                                         │
+│                   .or(req.override_cfg.default_waive_service_fee)            │
+│                   .unwrap_or(false);                                         │
+│                                                                              │
+│               let waive_tax_fee = req                                        │
+│                   .override_cfg                                              │
+│                   .waive_tax_fee                                             │
+│                   .or(req.override_cfg.default_waive_tax_fee)                │
+│                   .unwrap_or(false);                                         │
+│                                                                              │
+│               let extra_guest_fee = if waive_extra_guest_fee {               │
+│                   0                                                          │
+│               } else {                                                       │
+│                   req.extra_guest_fee                                        │
+│               };                                                             │
+│                                                                              │
+│               let service_fee = if waive_service_fee { 0 } else {            │
+│   req.service_fee };                                                         │
+│               let tax_fee = if waive_tax_fee { 0 } else { req.tax_fee };     │
+│                                                                              │
+│               PricingResult {                                                │
+│                   final_price: req.base_price + extra_guest_fee +            │
+│   service_fee + tax_fee,                                                     │
+│                   applied: AppliedOverride {                                 │
+│                       extra_guest_fee_waived: waive_extra_guest_fee,         │
+│                       service_fee_waived: waive_service_fee,                 │
+│                       tax_fee_waived: waive_tax_fee,                         │
+│                   },                                                         │
+│               }                                                              │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       fn make_base_request() -> PricingRequest {                             │
+│           PricingRequest {                                                   │
+│               base_price: 1_000_000,                                         │
+│               extra_guest_fee: 150_000,                                      │
+│               service_fee: 100_000,                                          │
+│               tax_fee: 80_000,                                               │
+│               override_cfg: OverrideConfig::default(),                       │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn case_f1_dynamic_override_should_change_result_immediately() {       │
+│           // Business flow:                                                  │
+│           // 1) cùng 1 booking data                                          │
+│           // 2) lần 1 không override => tính full                            │
+│           // 3) lần 2 bật waive_service_fee + waive_tax_fee theo request     │
+│           // 4) kết quả phải giảm đúng phần bị override                      │
+│           let req_without_override = make_base_request();                    │
+│           let result_without_override =                                      │
+│   PricingEngine::calculate(&req_without_override);                           │
+│                                                                              │
+│           assert_eq!(                                                        │
+│               result_without_override,                                       │
+│               PricingResult {                                                │
+│                   final_price: 1_330_000,                                    │
+│                   applied: AppliedOverride {                                 │
+│                       extra_guest_fee_waived: false,                         │
+│                       service_fee_waived: false,                             │
+│                       tax_fee_waived: false,                                 │
+│                   },                                                         │
+│               }                                                              │
+│           );                                                                 │
+│                                                                              │
+│           let mut req_with_dynamic_override = make_base_request();           │
+│           req_with_dynamic_override.override_cfg.waive_service_fee =         │
+│   Some(true);                                                                │
+│           req_with_dynamic_override.override_cfg.waive_tax_fee =             │
+│   Some(true);                                                                │
+│                                                                              │
+│           let result_with_override =                                         │
+│   PricingEngine::calculate(&req_with_dynamic_override);                      │
+│                                                                              │
+│           assert_eq!(                                                        │
+│               result_with_override,                                          │
+│               PricingResult {                                                │
+│                   final_price: 1_150_000,                                    │
+│                   applied: AppliedOverride {                                 │
+│                       extra_guest_fee_waived: false,                         │
+│                       service_fee_waived: true,                              │
+│                       tax_fee_waived: true,                                  │
+│                   },                                                         │
+│               }                                                              │
+│           );                                                                 │
+│                                                                              │
+│           assert_eq!(                                                        │
+│               result_without_override.final_price -                          │
+│   result_with_override.final_price,                                          │
+│               180_000                                                        │
+│           );                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn                                                                     │
+│   case_f2_request_override_should_have_higher_priority_than_default_overri   │
+│   de() {                                                                     │
+│           // Business flow:                                                  │
+│           // 1) system/default đang waive extra_guest_fee = true             │
+│           // 2) nhưng request-level set lại waive_extra_guest_fee = false    │
+│           // 3) request-level phải thắng => extra_guest_fee vẫn bị tính      │
+│           // 4) đồng thời request-level waive_service_fee = true =>          │
+│   service fee bị bỏ                                                          │
+│           let mut req = make_base_request();                                 │
+│                                                                              │
+│           req.override_cfg.default_waive_extra_guest_fee = Some(true);       │
+│           req.override_cfg.default_waive_service_fee = Some(false);          │
+│           req.override_cfg.default_waive_tax_fee = Some(false);              │
+│                                                                              │
+│           req.override_cfg.waive_extra_guest_fee = Some(false);              │
+│           req.override_cfg.waive_service_fee = Some(true);                   │
+│           // tax không set ở request => fallback về default false            │
+│                                                                              │
+│           let result = PricingEngine::calculate(&req);                       │
+│                                                                              │
+│           assert_eq!(                                                        │
+│               result,                                                        │
+│               PricingResult {                                                │
+│                   final_price: 1_230_000,                                    │
+│                   applied: AppliedOverride {                                 │
+│                       // request false thắng default true                    │
+│                       extra_guest_fee_waived: false,                         │
+│                       // request true thắng default false                    │
+│                       service_fee_waived: true,                              │
+│                       // fallback default false                              │
+│                       tax_fee_waived: false,                                 │
+│                   },                                                         │
+│               }                                                              │
+│           );                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn                                                                     │
+│   case_f2_request_override_should_fallback_to_default_when_request_not_pro   │
+│   vided() {                                                                  │
+│           // Bổ sung để khóa behavior "override linh động":                  │
+│           // request không truyền flag => engine phải dùng                   │
+│   default/system-level                                                       │
+│           let mut req = make_base_request();                                 │
+│                                                                              │
+│           req.override_cfg.default_waive_extra_guest_fee = Some(true);       │
+│           req.override_cfg.default_waive_service_fee = Some(false);          │
+│           req.override_cfg.default_waive_tax_fee = Some(true);               │
+│                                                                              │
+│           let result = PricingEngine::calculate(&req);                       │
+│                                                                              │
+│           assert_eq!(                                                        │
+│               result,                                                        │
+│               PricingResult {                                                │
+│                   final_price: 1_100_000,                                    │
+│                   applied: AppliedOverride {                                 │
+│                       extra_guest_fee_waived: true,                          │
+│                       service_fee_waived: false,                             │
+│                       tax_fee_waived: true,                                  │
+│                   },                                                         │
+│               }                                                              │
+│           );                                                                 │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // NẾU project của bạn đã có engine thật:                                  │
+│   // File: src-tauri/src/pricing/tests/mod.rs                                │
+│   //                                                                         │
+│   // Thêm module này để include test file trên.                              │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod case_f_override_dynamic;                                               │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // NẾU bạn muốn gắn trực tiếp vào file engine hiện có, ví dụ:              │
+│   // File: src-tauri/src/pricing/engine.rs                                   │
+│   //                                                                         │
+│   // Dán block test này xuống cuối file và đổi type/import cho khớp model    │
+│   thật.                                                                      │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod case_f_override_dynamic_inline_tests {                                 │
+│       use super::*;                                                          │
+│                                                                              │
+│       #[test]                                                                │
+│       fn case_f1_dynamic_override_should_change_result_immediately() {       │
+│           // TODO: thay bằng constructor/request thật của project            │
+│           // Mẫu assert giữ nguyên tinh thần:                                │
+│           //                                                                 │
+│           // 1. Không override => full amount                                │
+│           // 2. Override request-level => giảm đúng fee                      │
+│           // 3. Assert applied flags + final_price                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn                                                                     │
+│   case_f2_request_override_should_have_higher_priority_than_default_overri   │
+│   de() {                                                                     │
+│           // TODO:                                                           │
+│           // Assert thứ tự ưu tiên:                                          │
+│           // request override > default/system override > false              │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   # Hướng dẫn gắn code                                                       │
+│                                                                              │
+│   ## Cách 1: Thêm file test độc lập                                          │
+│   1. Tạo file:                                                               │
+│      `src-tauri/src/pricing/tests/case_f_override_dynamic.rs`                │
+│   2. Paste block Rust đầu tiên vào.                                          │
+│   3. Nếu có file `src-tauri/src/pricing/tests/mod.rs` thì thêm:              │
+│      ```rust                                                                 │
+│      #[cfg(test)]                                                            │
+│      mod case_f_override_dynamic;                                            │
+│                                                                              │
+│                                                                              │
+│   4 Chạy:                                                                    │
+│                                                                              │
+│      cd src-tauri                                                            │
+│      cargo test case_f                                                       │
+│                                                                              │
+│                                                                              │
+│  Cách 2: Gắn vào engine thật                                                 │
+│                                                                              │
+│   1 Mở file engine Rust hiện tại, ví dụ: src-tauri/src/pricing/engine.rs     │
+│   2 Paste block case_f_override_dynamic_inline_tests xuống cuối file.        │
+│   3 Đổi:                                                                     │
+│      • PricingRequest                                                        │
+│      • OverrideConfig                                                        │
+│      • PricingResult                                                         │
+│      • PricingEngine::calculate(...) thành type/function thật của project.   │
+│   4 Chạy:                                                                    │
+│                                                                              │
+│      cd src-tauri                                                            │
+│      cargo test case_f                                                       │
+│                                                                              │
+│                                                                              │
+│  Mapping nghiệp vụ cần giữ nguyên                                            │
+│                                                                              │
+│   • F1:                                                                      │
+│      • cùng dữ liệu đầu vào                                                  │
+│      • khi bật/tắt override linh động theo request                           │
+│      • kết quả final_price phải đổi ngay theo fee được waive                 │
+│   • F2:                                                                      │
+│      • thứ tự ưu tiên phải là: request override > default/system override >  │
+│        no override                                                           │
+│      • request truyền Some(false) phải có nghĩa là chủ động tắt override,    │
+│        không được rơi về default                                             │
+│                                                                              │
+│  Nếu project đã có spec/model thật                                           │
+│                                                                              │
+│  Hãy chỉ giữ:                                                                │
+│                                                                              │
+│   • tên test                                                                 │
+│   • input scenario                                                           │
+│   • expected final_price                                                     │
+│   • expected applied flags                                                   │
+│                                                                              │
+│  và map sang engine thật của bạn.                                            │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

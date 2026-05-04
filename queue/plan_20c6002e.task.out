@@ -1,0 +1,463 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  I can't access local files directly, but I have all the context needed      │
+│  from your task description. Here are the complete files:                    │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File 1: README.md — Patch (insert after "### Billing, payments, and         │
+│  reporting" section, ~line 128)                                              │
+│                                                                              │
+│  File path: /Volumes/Data/Hotel/CapyInn/mhm/README.md                        │
+│                                                                              │
+│  Add the following block after the "### Billing, payments, and reporting"    │
+│  section:                                                                    │
+│                                                                              │
+│                                                                              │
+│   ### Pricing                                                                │
+│                                                                              │
+│   - Multi-mode pricing engine: hourly, overnight, daily, and monthly rate    │
+│   plans                                                                      │
+│   - Step-function hourly pricing with automatic fallback to daily rates      │
+│   - Dynamic pricing rules: weekend surcharges, holiday rates,                │
+│   specific-date overrides                                                    │
+│   - Early check-in and late check-out surcharge with configurable step       │
+│   thresholds                                                                 │
+│   - Extra bed charging based on occupant count vs room capacity              │
+│   - Price override ("Linh động giá") per stay without affecting base rate    │
+│   plan                                                                       │
+│   - Real-time pricing preview during check-in and check-out                  │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File 2: docs/pricing-guide.md — Create new file                             │
+│                                                                              │
+│  File path: /Volumes/Data/Hotel/CapyInn/mhm/docs/pricing-guide.md            │
+│                                                                              │
+│                                                                              │
+│   # Hướng dẫn sử dụng: Hệ thống tính giá phòng CapyInn                       │
+│                                                                              │
+│   > Tài liệu này hướng dẫn cách cấu hình và sử dụng module tính giá phòng    │
+│   trong CapyInn.                                                             │
+│   > Hệ thống hỗ trợ đồng thời nhiều hình thức tính giá trên cùng một loại    │
+│   phòng: **giờ**, **qua đêm**, **theo ngày**, và **theo tháng**.             │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Mục lục                                                                 │
+│                                                                              │
+│   1. [Tổng quan](#tổng-quan)                                                 │
+│   2. [Ví dụ A: Khách giờ (Motel)](#ví-dụ-a-khách-giờ-motel)                  │
+│   3. [Ví dụ B: Khách sạn du lịch — Check-out                                 │
+│   muộn](#ví-dụ-b-khách-sạn-du-lịch--check-out-muộn)                          │
+│   4. [Ví dụ C: Giá theo thời điểm (Dynamic                                   │
+│   Pricing)](#ví-dụ-c-giá-theo-thời-điểm-dynamic-pricing)                     │
+│   5. [Ví dụ D: Khách giờ + giá theo thời điểm khung                          │
+│   đêm](#ví-dụ-d-khách-giờ--giá-theo-thời-điểm-khung-đêm)                     │
+│   6. [Ví dụ E: Phụ thu giường phụ (Extra                                     │
+│   Bed)](#ví-dụ-e-phụ-thu-giường-phụ-extra-bed)                               │
+│   7. [Ví dụ F: Linh động giá (Override                                       │
+│   giá)](#ví-dụ-f-linh-động-giá-override-giá)                                 │
+│   8. [Ví dụ G: Giá theo tháng](#ví-dụ-g-giá-theo-tháng)                      │
+│   9. [Lưu ý quan trọng](#lưu-ý-quan-trọng)                                   │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Tổng quan                                                               │
+│                                                                              │
+│   Khi tạo hoặc chỉnh sửa **Loại phòng**, bạn sẽ thiết lập một **Rate         │
+│   Plan** (bảng giá) gồm 5 nhóm cấu hình:                                     │
+│                                                                              │
+│   | Nhóm | Mô tả |                                                           │
+│   |------|--------|                                                          │
+│   | **Giá ngày (Night)** | Giá 1 đêm tiêu chuẩn (12:00 → 12:00 hôm sau) |    │
+│   | **Giá qua đêm (Overnight)** | Giá 1 đêm ngắn (ví dụ 21:00 → 12:00 hôm    │
+│   sau) |                                                                     │
+│   | **Giá giờ (Hourly)** | Bậc thang theo số giờ, có giới hạn max giờ rồi    │
+│   chuyển sang giá ngày |                                                     │
+│   | **Phụ trội (Surcharges)** | Check-in sớm, check-out muộn — tính tiền     │
+│   hoặc % giá đêm |                                                           │
+│   | **Giường phụ (Extra Bed)** | Phụ thu mỗi người vượt sức chứa tiêu        │
+│   chuẩn |                                                                    │
+│                                                                              │
+│   Ngoài ra, module **Giá theo thời điểm** cho phép tăng/thay thế giá vào     │
+│   cuối tuần, ngày lễ, hoặc khung giờ cụ thể.                                 │
+│                                                                              │
+│   ### Cách hệ thống tự động chọn hình thức tính                              │
+│                                                                              │
+│   Khi để chế độ **Auto** (mặc định), hệ thống quyết định theo thứ tự:        │
+│                                                                              │
+│   1. Nếu thời gian lưu trú < số giờ tối đa (`hourly_max_hours`) VÀ có cấu    │
+│   hình giá giờ → **Tính giờ**                                                │
+│   2. Nếu giờ check-in ≥ giờ bắt đầu đêm (`overnight_start_hour`, mặc định    │
+│   21:00) → **Tính qua đêm**                                                  │
+│   3. Nếu thời gian lưu trú ≈ N tháng VÀ có cấu hình giá tháng → **Tính       │
+│   tháng**                                                                    │
+│   4. Còn lại → **Tính ngày**                                                 │
+│                                                                              │
+│   Nhân viên lễ tân có thể ghi đè chế độ bằng dropdown: *Giờ | Qua đêm |      │
+│   Theo ngày | Theo tháng*.                                                   │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Ví dụ A: Khách giờ (Motel)                                              │
+│                                                                              │
+│   ### Cấu hình                                                               │
+│                                                                              │
+│   Vào **Cài đặt → Loại phòng → [Phòng Đơn] → Rate Plan**:                    │
+│                                                                              │
+│   | Trường | Giá trị |                                                       │
+│   |--------|---------|                                                       │
+│   | Giá ngày (Night rate) | 350.000đ |                                       │
+│   | Giá qua đêm (Overnight rate) | 280.000đ |                                │
+│   | Giờ bắt đầu đêm | 21:00 |                                                │
+│   | Giá giờ – Bậc 1 (1h) | 80.000đ |                                         │
+│   | Giá giờ – Bậc 2 (2h) | 110.000đ |                                        │
+│   | Giá giờ – Bậc 3 (3h) | 140.000đ |                                        │
+│   | Giá giờ – Bậc 4 (4h) | 170.000đ |                                        │
+│   | Giá giờ – Bậc 5 (5h) | 200.000đ |                                        │
+│   | Giá giờ – Bậc 6 (6h) | 230.000đ |                                        │
+│   | Giờ tối đa (Max hours) | 6 |                                             │
+│   | Phụ trội check-in sớm (đêm) | +30.000đ/giờ |                             │
+│   | Phụ trội check-out muộn (ngày) | +30.000đ/giờ |                          │
+│                                                                              │
+│   > **Lưu ý:** Giá giờ là giá tổng cho khoảng thời gian đó (step             │
+│   function), KHÔNG phải giá mỗi giờ cộng dồn. Ví dụ: ở 4 giờ thì trả         │
+│   170.000đ (không phải 80k×4).                                               │
+│                                                                              │
+│   ### Kết quả tính toán                                                      │
+│                                                                              │
+│   **A1 — Khách giờ thuần túy:**                                              │
+│   - Check-in: 09:00, Check-out: 13:00 → Ở 4 giờ                              │
+│   - Tra bảng bậc thang: bậc 4h = **170.000đ**                                │
+│   - **Tổng: 170.000đ**                                                       │
+│                                                                              │
+│   **A2 — Khách ngày tiêu chuẩn:**                                            │
+│   - Check-in: 12:00, Check-out: 12:00 hôm sau → 1 đêm                        │
+│   - Hệ thống chọn chế độ Night (vượt max 6h)                                 │
+│   - **Tổng: 350.000đ**                                                       │
+│                                                                              │
+│   **A3 — Khách ngày + check-out muộn:**                                      │
+│   - Check-in: 12:00, Check-out: 14:00 hôm sau → 1 đêm + 2h trễ               │
+│   - Night: 350.000đ                                                          │
+│   - Late checkout: 2 giờ × 30.000đ = 60.000đ                                 │
+│   - **Tổng: 410.000đ**                                                       │
+│                                                                              │
+│   **A4 — Khách qua đêm:**                                                    │
+│   - Check-in: 21:00, Check-out: 12:00 hôm sau → 1 đêm ngắn                   │
+│   - Hệ thống nhận giờ check-in ≥ 21:00 → chế độ Overnight                    │
+│   - **Tổng: 280.000đ**                                                       │
+│                                                                              │
+│   **A5 — Khách qua đêm + check-in sớm:**                                     │
+│   - Check-in: 19:00 (sớm 2h so với 21:00), Check-out: 12:00 hôm sau          │
+│   - Overnight: 280.000đ                                                      │
+│   - Early checkin: 2 giờ × 30.000đ = 60.000đ                                 │
+│   - **Tổng: 340.000đ**                                                       │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Ví dụ B: Khách sạn du lịch — Check-out muộn                             │
+│                                                                              │
+│   ### Cấu hình                                                               │
+│                                                                              │
+│   Vào **Cài đặt → Loại phòng → [Standard] → Rate Plan**:                     │
+│                                                                              │
+│   | Trường | Giá trị |                                                       │
+│   |--------|---------|                                                       │
+│   | Giá ngày (Night rate) | 400.000đ |                                       │
+│   | Check-in sớm | Miễn phí (không cấu hình phụ trội) |                      │
+│   | Check-out muộn – Bậc 1 (đến 3h trễ, tức 12:00–15:00) | 30% giá đêm |     │
+│   | Check-out muộn – Bậc 2 (đến 6h trễ, tức 15:00–18:00) | 50% giá đêm |     │
+│   | Check-out muộn – Bậc 3 (trên 6h trễ, tức sau 18:00) | 100% giá đêm |     │
+│                                                                              │
+│   > **Lưu ý:** Phụ trội dạng "%" sẽ tự quy ra tiền dựa trên giá đêm hiện     │
+│   hành (sau khi áp dynamic pricing nếu có).                                  │
+│                                                                              │
+│   ### Kết quả tính toán                                                      │
+│                                                                              │
+│   **B1 — Check-in sớm, check-out đúng giờ:**                                 │
+│   - Check-in: 10:00, Check-out: 12:00 hôm sau → 1 đêm                        │
+│   - Check-in sớm 2h nhưng cấu hình miễn phí → 0đ phụ trội                    │
+│   - **Tổng: 400.000đ**                                                       │
+│                                                                              │
+│   **B2 — Check-out muộn trong bậc 1 (≤3h):**                                 │
+│   - Check-in: 12:00, Check-out: 14:00 hôm sau → 1 đêm + 2h trễ               │
+│   - Night: 400.000đ                                                          │
+│   - Late checkout: bậc 1 (≤3h) = 30% × 400.000 = 120.000đ                    │
+│   - **Tổng: 520.000đ**                                                       │
+│                                                                              │
+│   **B3 — Check-out muộn vượt bậc 3 (>6h trễ):**                              │
+│   - Check-in: 12:00, Check-out: 19:00 hôm sau → 1 đêm + 7h trễ               │
+│   - Night: 400.000đ                                                          │
+│   - Late checkout: bậc 3 (>6h) = 100% × 400.000 = 400.000đ                   │
+│   - **Tổng: 800.000đ**                                                       │
+│                                                                              │
+│   > **Mẹo:** Khi phụ trội bậc 3 = 100% giá đêm, hiệu quả tương đương tính    │
+│   thêm 1 đêm. Hệ thống hiển thị dòng rõ ràng "Phụ trội check-out muộn:       │
+│   400.000đ" để lễ tân giải thích cho khách.                                  │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Ví dụ C: Giá theo thời điểm (Dynamic Pricing)                           │
+│                                                                              │
+│   ### Cấu hình                                                               │
+│                                                                              │
+│   Vào **Cài đặt → Giá theo thời điểm → Tạo quy tắc mới**:                    │
+│                                                                              │
+│   | Trường | Giá trị |                                                       │
+│   |--------|---------|                                                       │
+│   | Tên quy tắc | Cuối tuần |                                                │
+│   | Áp dụng cho | Giá ngày (Night) |                                         │
+│   | Chiến lược | Cộng thêm (Add) |                                           │
+│   | Ngày trong tuần | ☑ Thứ 6, ☑ Thứ 7 |                                     │
+│   | Giá trị – Standard | +50.000đ |                                          │
+│   | Giá trị – Superior | +70.000đ |                                          │
+│                                                                              │
+│   > **Giải thích:** "Đêm thứ 6" nghĩa là đêm bắt đầu vào tối thứ 6           │
+│   (check-in thứ 6, check-out thứ 7). Hệ thống áp dynamic rule theo ngày      │
+│   bắt đầu của đêm đó.                                                        │
+│                                                                              │
+│   ### Kết quả tính toán                                                      │
+│                                                                              │
+│   **C1 — Khách Standard ở 1 đêm thứ Sáu:**                                   │
+│   - Check-in: Thứ 6, 14:00. Check-out: Thứ 7, 12:00 → 1 đêm (đêm T6)         │
+│   - Night base: 400.000đ                                                     │
+│   - Dynamic rule: đêm T6 → +50.000đ                                          │
+│   - **Tổng: 450.000đ**                                                       │
+│                                                                              │
+│   **C2 — Khách Standard ở 2 đêm (Thứ 5 + Thứ 6):**                           │
+│   - Check-in: Thứ 5, 14:00. Check-out: Thứ 7, 12:00 → 2 đêm                  │
+│   - Đêm T5: 400.000đ (không áp rule vì rule chỉ chọn T6, T7)                 │
+│   - Đêm T6: 400.000 + 50.000 = 450.000đ                                      │
+│   - **Tổng: 850.000đ**                                                       │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Ví dụ D: Khách giờ + giá theo thời điểm khung đêm                       │
+│                                                                              │
+│   ### Cấu hình                                                               │
+│                                                                              │
+│   **Rule 1 — Phụ thu giờ khuya ngày thường:**                                │
+│                                                                              │
+│   | Trường | Giá trị |                                                       │
+│   |--------|---------|                                                       │
+│   | Tên quy tắc | Giờ khuya T2–T6 |                                          │
+│   | Áp dụng cho | Giá giờ (Hourly) |                                         │
+│   | Chiến lược | Cộng thêm (Add) |                                           │
+│   | Ngày trong tuần | ☑ T2, ☑ T3, ☑ T4, ☑ T5, ☑ T6 |                         │
+│   | Khung giờ | 22:00 – 02:00 |                                              │
+│   | Giá trị (tất cả loại phòng) | +20.000đ/giờ |                             │
+│                                                                              │
+│   **Rule 2 — Phụ thu giờ khuya cuối tuần:**                                  │
+│                                                                              │
+│   | Trường | Giá trị |                                                       │
+│   |--------|---------|                                                       │
+│   | Tên quy tắc | Giờ khuya T7–CN |                                          │
+│   | Áp dụng cho | Giá giờ (Hourly) |                                         │
+│   | Chiến lược | Cộng thêm (Add) |                                           │
+│   | Ngày trong tuần | ☑ T7, ☑ CN |                                           │
+│   | Khung giờ | 22:00 – 02:00 |                                              │
+│   | Giá trị (tất cả loại phòng) | +30.000đ/giờ |                             │
+│                                                                              │
+│   > **Lưu ý:** Với giá giờ, dynamic rule được áp **từng giờ** (không phải    │
+│   cho cả lượt). Mỗi giờ lưu trú được kiểm tra xem có rơi vào khung giờ của   │
+│   rule hay không.                                                            │
+│                                                                              │
+│   ### Kết quả tính toán                                                      │
+│                                                                              │
+│   **D1 — Khách giờ khuya ngày thường (Thứ 2):**                              │
+│   - Check-in: 23:00 Thứ 2. Check-out: 01:00 Thứ 3 → 2 giờ                    │
+│   - Giá giờ base (bậc 2h): 100.000đ                                          │
+│   - Dynamic hourly: 2 giờ trong khung 22:00–02:00 ngày thường → +20.000 ×    │
+│   2 = 40.000đ                                                                │
+│   - **Tổng: 140.000đ**                                                       │
+│                                                                              │
+│   **D2 — Khách giờ khuya cuối tuần (Thứ 7):**                                │
+│   - Check-in: 23:00 Thứ 7. Check-out: 01:00 Chủ Nhật → 2 giờ                 │
+│   - Giá giờ base (bậc 2h): 100.000đ                                          │
+│   - Dynamic hourly: 2 giờ trong khung 22:00–02:00 cuối tuần → +30.000 × 2    │
+│   = 60.000đ                                                                  │
+│   - **Tổng: 160.000đ**                                                       │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Ví dụ E: Phụ thu giường phụ (Extra Bed)                                 │
+│                                                                              │
+│   ### Cấu hình                                                               │
+│                                                                              │
+│   Vào **Cài đặt → Loại phòng → [Phòng Đôi] → Rate Plan**:                    │
+│                                                                              │
+│   | Trường | Giá trị |                                                       │
+│   |--------|---------|                                                       │
+│   | Giá ngày (Night rate) | 350.000đ |                                       │
+│   | Sức chứa tiêu chuẩn (Capacity) | 2 người |                               │
+│   | Phụ thu giường phụ | 100.000đ / người / đêm |                            │
+│                                                                              │
+│   > **Quy tắc:** Phụ thu giường phụ = (Số người thực tế − Sức chứa tiêu      │
+│   chuẩn) × Giá phụ thu × Số đêm. Chỉ áp dụng cho chế độ Night và             │
+│   Overnight, KHÔNG áp cho khách giờ.                                         │
+│                                                                              │
+│   ### Kết quả tính toán                                                      │
+│                                                                              │
+│   **E1 — 3 người ở phòng đôi, 2 đêm:**                                       │
+│   - Check-in: 14:00 Thứ 2. Check-out: 12:00 Thứ 4 → 2 đêm                    │
+│   - Số người: 3, Capacity: 2 → Vượt 1 người                                  │
+│   - Night: 350.000 × 2 = 700.000đ                                            │
+│   - Extra bed: 1 người × 100.000 × 2 đêm = 200.000đ                          │
+│   - **Tổng: 900.000đ**                                                       │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Ví dụ F: Linh động giá (Override giá)                                   │
+│                                                                              │
+│   ### Cách sử dụng                                                           │
+│                                                                              │
+│   Tại **màn hình Check-in** hoặc **thông tin lưu trú**, nhấn biểu tượng      │
+│   **✏️ Linh động giá**:                                                      │
+│                                                                              │
+│   1. Hệ thống hiển thị Rate Plan hiện tại của phòng.                         │
+│   2. Lễ tân chỉnh giá bất kỳ trường nào (ví dụ: giảm giá đêm từ 350k →       │
+│   250k).                                                                     │
+│   3. Nhấn **Xác nhận** — hệ thống lưu bản snapshot giá riêng cho lượt        │
+│   khách này.                                                                 │
+│   4. Giá gốc của loại phòng KHÔNG bị thay đổi.                               │
+│                                                                              │
+│   > **Quan trọng:** Linh động giá tạo một bản sao (snapshot) riêng cho       │
+│   lượt lưu trú. Nếu sau đó bạn thay đổi Rate Plan gốc, lượt khách đã         │
+│   override sẽ KHÔNG bị ảnh hưởng.                                            │
+│                                                                              │
+│   ### Kết quả tính toán                                                      │
+│                                                                              │
+│   **F1 — Override giá cho 1 khách:**                                         │
+│   - Phòng Đôi: giá gốc 350.000đ/đêm                                          │
+│   - Lễ tân override xuống 250.000đ/đêm cho khách Agoda                       │
+│   - Khách ở 1 đêm → **Tổng: 250.000đ**                                       │
+│                                                                              │
+│   **F2 — Khách kế tiếp dùng giá gốc:**                                       │
+│   - Sau khi khách F1 check-out, phòng quay về Rate Plan gốc                  │
+│   - Khách mới check-in 1 đêm → **Tổng: 350.000đ**                            │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Ví dụ G: Giá theo tháng                                                 │
+│                                                                              │
+│   ### Cấu hình                                                               │
+│                                                                              │
+│   Vào **Cài đặt → Loại phòng → [Phòng Đơn Dài Hạn] → Rate Plan**:            │
+│                                                                              │
+│   | Trường | Giá trị |                                                       │
+│   |--------|---------|                                                       │
+│   | Giá tháng (Monthly rate) | 6.000.000đ |                                  │
+│   | Giá ngày dư (Residual day rate) | 250.000đ/ngày |                        │
+│   | Chế độ dư ngày (Residual mode) | Theo ngày (`per_day`) |                 │
+│                                                                              │
+│   Hoặc chế độ thay thế:                                                      │
+│                                                                              │
+│   | Trường | Giá trị |                                                       │
+│   |--------|---------|                                                       │
+│   | Giá tháng (Monthly rate) | 6.000.000đ |                                  │
+│   | Chế độ dư ngày (Residual mode) | Đủ tháng (`full_month`) |               │
+│                                                                              │
+│   > **Giải thích chế độ:**                                                   │
+│   > - `per_day`: Sau đủ tháng, mỗi ngày dư tính theo giá ngày dư             │
+│   (250k/ngày).                                                               │
+│   > - `full_month`: Bất kể ở bao nhiêu ngày trong tháng tiếp theo, tính      │
+│   thêm 1 tháng đầy đủ.                                                       │
+│                                                                              │
+│   ### Kết quả tính toán                                                      │
+│                                                                              │
+│   **G1 — Ở đúng 1 tháng:**                                                   │
+│   - Check-in: 12/01. Check-out: 12/02 → Đúng 1 tháng                         │
+│   - **Tổng: 6.000.000đ**                                                     │
+│                                                                              │
+│   **G2 — Ở 1 tháng + dư ngày (chế độ `per_day`):**                           │
+│   - Check-in: 12/01. Check-out: 20/02 → 1 tháng + 8 ngày dư                  │
+│   - Monthly: 6.000.000đ                                                      │
+│   - Residual: 8 × 250.000 = 2.000.000đ                                       │
+│   - **Tổng: 8.000.000đ**                                                     │
+│                                                                              │
+│   **G3 — Ở 1 tháng + dư ngày (chế độ `full_month`):**                        │
+│   - Check-in: 12/01. Check-out: 20/02 → 1 tháng + 8 ngày dư                  │
+│   - Chế độ full_month: dư ngày bất kỳ → tính thêm 1 tháng                    │
+│   - Monthly: 6.000.000 × 2 = 12.000.000đ                                     │
+│   - **Tổng: 12.000.000đ**                                                    │
+│                                                                              │
+│   ---                                                                        │
+│                                                                              │
+│   ## Lưu ý quan trọng                                                        │
+│                                                                              │
+│   ### Về đơn vị tiền tệ                                                      │
+│   Tất cả giá trị tiền trong CapyInn đều là **số nguyên đơn vị VNĐ** (không   │
+│   có phần thập phân). Điều này đảm bảo không có sai lệch do làm tròn số      │
+│   thực.                                                                      │
+│                                                                              │
+│   ### Về múi giờ                                                             │
+│   Hệ thống sử dụng múi giờ **UTC+7 (Việt Nam)** cố định. Không có chuyển     │
+│   đổi daylight saving.                                                       │
+│                                                                              │
+│   ### Về thứ tự ưu tiên                                                      │
+│   Khi nhiều quy tắc dynamic pricing cùng áp dụng cho một đêm/giờ, hệ thống   │
+│   áp dụng theo thứ tự:                                                       │
+│   1. Quy tắc **ngày cụ thể** (`specific_dates`) được ưu tiên cao nhất.       │
+│   2. Sau đó là quy tắc **ngày trong tuần** (`weekday_mask`).                 │
+│   3. Nếu cùng loại, quy tắc tạo sau (mới hơn) sẽ ghi đè quy tắc cũ.          │
+│                                                                              │
+│   ### Về chốt giá (Price Locking)                                            │
+│   Khi cần phát hành hóa đơn điện tử (HĐĐT), nhấn **Chốt giá** tại lượt lưu   │
+│   trú. Sau khi chốt:                                                         │
+│   - Giá không thể bị thay đổi bởi sửa Rate Plan hay dynamic rule.            │
+│   - Giá trị chốt được lưu cố định trong field `locked_total`.                │
+│   - Muốn thay đổi phải hủy chốt trước (yêu cầu quyền quản lý).               │
+│                                                                              │
+│   ### Về hiển thị bảng tính                                                  │
+│   Tại mọi thời điểm, nhấn **Chi tiết giá** trên lượt lưu trú sẽ hiện bảng    │
+│   phân tích từng dòng (line items):                                          │
+│   - Tiền phòng (base × số đêm/giờ/tháng)                                     │
+│   - Phụ trội check-in sớm                                                    │
+│   - Phụ trội check-out muộn                                                  │
+│   - Phụ thu giường phụ                                                       │
+│   - Dynamic pricing adjustment                                               │
+│                                                                              │
+│   Giúp lễ tân giải thích minh bạch cho khách.                                │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File 3: CHANGELOG.md — Patch (insert under ## Unreleased)                   │
+│                                                                              │
+│  File path: /Volumes/Data/Hotel/CapyInn/mhm/CHANGELOG.md                     │
+│                                                                              │
+│  Add the following block under the ## Unreleased heading:                    │
+│                                                                              │
+│                                                                              │
+│   ### Added                                                                  │
+│   - Pricing Engine VN: multi-mode pricing (hourly, overnight, daily,         │
+│   monthly)                                                                   │
+│   - Rate Plan configuration with 5 tab groups                                │
+│   - Dynamic pricing rules with weekend/holiday/date overlays                 │
+│   - Real-time pricing preview in check-in and check-out dialogs              │
+│   - Price locking for invoice integrity                                      │
+│   - Calculator panel with line-item breakdown                                │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Tóm tắt thao tác                                                            │
+│                                                                              │
+│                                                                              │
+│   Thao tác  File                   Vị trí                                    │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   Chèn      README.md              Sau section "### Billing, payments, and   │
+│                                    reporting" (~line 128)                    │
+│   Tạo mới   docs/pricing-guide.md  Toàn bộ file mới                          │
+│   Chèn      CHANGELOG.md           Ngay dưới heading ## Unreleased           │
+│                                                                              │
+│                                                                              │
+│  Tất cả 3 file đều hoàn chỉnh, không có placeholder hay TODO. Nội dung       │
+│  pricing-guide.md bao phủ đầy đủ 7 ví dụ A–G từ proposal với số liệu chính   │
+│  xác khớp acceptance scenarios trong proposal.md.                            │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

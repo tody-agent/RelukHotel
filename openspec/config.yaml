@@ -1,0 +1,41 @@
+schema: spec-driven
+
+context: |
+  Project: CapyInn — Offline-first PMS cho mini hotel & guesthouse Việt Nam.
+  Mục tiêu chiến lược: Thay thế SkyHotel cho phân khúc 5–30 phòng.
+
+  Tech stack:
+    App shell: Tauri 2
+    Backend:   Rust (sqlx + SQLite, async via tokio)
+    Frontend:  React 19 + TypeScript + Tailwind 4 + shadcn/ui
+    State:     Zustand
+    OCR:       ocr-rs + PaddleOCR v5 + MNN (offline)
+    Tests:     Vitest + cargo test + Clippy
+
+  Repo layout: ~/CapyInn/mhm/{src, src-tauri, tests, models}
+  Runtime root (user data): ~/CapyInn/
+
+  Nguyên tắc thiết kế:
+    1. Local-first, dữ liệu khách KHÔNG rời máy trừ khi user opt-in.
+    2. Pure-function pricing engine, idempotent, có unit test cho từng case.
+    3. Mọi thao tác nghiệp vụ phải ghi audit_log (actor, before, after).
+    4. Schema migration qua sqlx migrate; KHÔNG drop dữ liệu.
+    5. Cross-platform first (Windows + macOS + Linux), không macOS-only.
+    6. Tuân thủ pháp lý VN: HĐĐT theo NĐ 123/2020 và NĐ 70/2025.
+
+  Đối thủ tham chiếu: SkyHotel (skyhotel.vn). Khi có ambiguity về nghiệp vụ,
+  ưu tiên đối chiếu với hotro.skyhotel.vn để parity.
+
+rules:
+  proposal:
+    - Ghi rõ tham chiếu SkyHotel (URL doc) cho từng tính năng nếu có.
+    - Liệt kê acceptance test cases đối chiếu SkyHotel.
+  specs:
+    - Dùng định dạng GIVEN/WHEN/THEN có tiếng Việt được, nhưng key terms giữ nguyên (RFC 2119: MUST/SHALL/SHOULD/MAY).
+    - Mọi requirement liên quan tiền phải có ví dụ số cụ thể.
+  design:
+    - Liệt kê migrations SQL cụ thể (tên file, schema thay đổi).
+    - Có sơ đồ data flow nếu cross-module.
+  tasks:
+    - Nhóm theo: Backend (Rust) / Frontend (React) / DB Migration / Tests / Docs.
+    - Mỗi task ≤ 1 ngày công.

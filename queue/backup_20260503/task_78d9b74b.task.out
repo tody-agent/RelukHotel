@@ -1,0 +1,1256 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Now let me look at the design document for the pricing engine:Let me look   │
+│  at the existing CapyInn database structure to understand the current        │
+│  schema:Let me try a different approach to get the repository structure:Let  │
+│  me check the existing database schema and migrations:Let me try getting     │
+│  the raw file content:Now let me look at the existing pricing module:Now I   │
+│  have a comprehensive understanding of the existing codebase. Let me also    │
+│  look at how the existing stay table (bookings) is structured and check for  │
+│  the stays table reference:Now I have a thorough understanding of the        │
+│  existing codebase. The project uses:                                        │
+│                                                                              │
+│   1 SQLx with SQLite                                                         │
+│   2 Versioned inline migrations in db.rs                                     │
+│   3 Current schema version is 15                                             │
+│   4 There's already a pricing_rules table (V3) and special_dates table       │
+│   5 The task references rate_plan, dynamic_price_rule,                       │
+│     dynamic_price_rule_value, and ALTER stay (which maps to the bookings     │
+│     table)                                                                   │
+│                                                                              │
+│  The task asks for a Pricing Engine V2 that replaces the simpler             │
+│  pricing_rules with a more sophisticated system similar to SkyHotel (a       │
+│  popular Vietnamese hotel management system). Let me now write the           │
+│  implementation.                                                             │
+│                                                                              │
+│  Based on my analysis of the CapyInn codebase, here's the complete           │
+│  implementation:                                                             │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Implementation: Migration 0001_pricing_engine_v2.sql                        │
+│                                                                              │
+│  Phân tích nghiệp vụ                                                         │
+│                                                                              │
+│  SkyHotel Pricing Engine VN hoạt động theo mô hình:                          │
+│                                                                              │
+│   • Rate Plan (Bảng giá): Nhóm các rule giá theo mùa/chiến dịch (VD: "Giá    │
+│     Tết 2026", "Giá hè", "Giá weekday")                                      │
+│   • Dynamic Price Rule: Điều kiện áp dụng (theo ngày trong tuần, occupancy   │
+│     threshold, lead time, length of stay)                                    │
+│   • Dynamic Price Rule Value: Giá trị thay đổi cụ thể (theo từng room_type,  │
+│     adjustment amount/percent)                                               │
+│   • Stay (Bookings): Cần thêm FK reference tới rate_plan_id đã apply         │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  FILE 1: mhm/src-tauri/migrations/0001_pricing_engine_v2.sql                 │
+│                                                                              │
+│                                                                              │
+│   -- ╔══════════════════════════════════════════════════════════════════╗    │
+│   -- ║  Migration 0001: Pricing Engine V2                              ║     │
+│   -- ║  Tables: rate_plan, dynamic_price_rule, dynamic_price_rule_value║     │
+│   -- ║  Alters: bookings (add rate_plan_id, applied_rules_snapshot)    ║     │
+│   -- ╚══════════════════════════════════════════════════════════════════╝    │
+│                                                                              │
+│   -- ┌──────────────────────────────────────────────────────────────────┐    │
+│   -- │ rate_plan: Bảng giá (pricing campaign/season)                    │    │
+│   -- │ Mỗi khách sạn có nhiều bảng giá, chỉ 1 active tại 1 thời điểm  │      │
+│   -- └──────────────────────────────────────────────────────────────────┘    │
+│   CREATE TABLE IF NOT EXISTS rate_plan (                                     │
+│       id              TEXT PRIMARY KEY,                                      │
+│       name            TEXT NOT NULL,                                         │
+│       description     TEXT,                                                  │
+│       -- Khoảng thời gian hiệu lực                                           │
+│       effective_from  TEXT NOT NULL,           -- ISO date "2026-01-01"      │
+│       effective_to    TEXT,                    -- NULL = vô thời hạn         │
+│       -- Priority: rate_plan priority cao hơn sẽ override thấp hơn (nếu      │
+│   overlap)                                                                   │
+│       priority        INTEGER NOT NULL DEFAULT 0,                            │
+│       -- Trạng thái                                                          │
+│       is_active       INTEGER NOT NULL DEFAULT 1,                            │
+│       -- Base rate override: nếu set, sẽ override room.base_price            │
+│       -- NULL = dùng base_price của room                                     │
+│       base_rate_override INTEGER,                                            │
+│       -- Metadata                                                            │
+│       created_by      TEXT,                                                  │
+│       created_at      TEXT NOT NULL DEFAULT (datetime('now')),               │
+│       updated_at      TEXT NOT NULL DEFAULT (datetime('now'))                │
+│   );                                                                         │
+│                                                                              │
+│   CREATE INDEX IF NOT EXISTS idx_rate_plan_active                            │
+│       ON rate_plan(is_active, priority DESC, effective_from);                │
+│                                                                              │
+│   CREATE INDEX IF NOT EXISTS idx_rate_plan_effective                         │
+│       ON rate_plan(effective_from, effective_to)                             │
+│       WHERE is_active = 1;                                                   │
+│                                                                              │
+│   -- ┌──────────────────────────────────────────────────────────────────┐    │
+│   -- │ dynamic_price_rule: Điều kiện điều chỉnh giá                    │     │
+│   -- │ Mỗi rule thuộc về 1 rate_plan, define WHEN to apply adjustment  │     │
+│   -- └──────────────────────────────────────────────────────────────────┘    │
+│   CREATE TABLE IF NOT EXISTS dynamic_price_rule (                            │
+│       id              TEXT PRIMARY KEY,                                      │
+│       rate_plan_id    TEXT NOT NULL REFERENCES rate_plan(id) ON DELETE       │
+│   CASCADE,                                                                   │
+│       name            TEXT NOT NULL,                                         │
+│       -- Loại rule                                                           │
+│       -- "day_of_week"    : áp dụng theo thứ (Mon-Sun)                       │
+│       -- "occupancy"      : áp dụng khi occupancy >= threshold               │
+│       -- "lead_time"      : áp dụng theo số ngày đặt trước                   │
+│       -- "length_of_stay" : áp dụng theo số đêm ở                            │
+│       -- "date_range"     : áp dụng cho khoảng ngày cụ thể (lễ, Tết)         │
+│       -- "guest_count"    : áp dụng theo số khách trong phòng                │
+│       rule_type       TEXT NOT NULL,                                         │
+│       -- Condition JSON: tham số điều kiện tùy theo rule_type                │
+│       -- day_of_week:    {"days": [5, 6]}  (0=Mon, 6=Sun)                    │
+│       -- occupancy:      {"min_pct": 80}                                     │
+│       -- lead_time:      {"max_days": 3}   (đặt trước <= 3 ngày)             │
+│       -- length_of_stay: {"min_nights": 3} (ở >= 3 đêm thì giảm)             │
+│       -- date_range:     {"from": "2026-01-28", "to": "2026-02-03"}          │
+│       -- guest_count:    {"min_guests": 3}                                   │
+│       condition_json  TEXT NOT NULL DEFAULT '{}',                            │
+│       -- Thứ tự áp dụng trong cùng rate_plan (stack/layer)                   │
+│       priority        INTEGER NOT NULL DEFAULT 0,                            │
+│       -- Có cho phép cộng dồn với rule khác không                            │
+│       is_stackable    INTEGER NOT NULL DEFAULT 1,                            │
+│       -- Active toggle                                                       │
+│       is_active       INTEGER NOT NULL DEFAULT 1,                            │
+│       -- Metadata                                                            │
+│       created_at      TEXT NOT NULL DEFAULT (datetime('now')),               │
+│       updated_at      TEXT NOT NULL DEFAULT (datetime('now'))                │
+│   );                                                                         │
+│                                                                              │
+│   CREATE INDEX IF NOT EXISTS idx_dynamic_price_rule_plan                     │
+│       ON dynamic_price_rule(rate_plan_id, priority DESC)                     │
+│       WHERE is_active = 1;                                                   │
+│                                                                              │
+│   CREATE INDEX IF NOT EXISTS idx_dynamic_price_rule_type                     │
+│       ON dynamic_price_rule(rule_type, is_active);                           │
+│                                                                              │
+│   -- ┌──────────────────────────────────────────────────────────────────┐    │
+│   -- │ dynamic_price_rule_value: Giá trị điều chỉnh cụ thể            │      │
+│   -- │ Mỗi rule có thể có nhiều value (1 per room_type hoặc default)   │     │
+│   -- └──────────────────────────────────────────────────────────────────┘    │
+│   CREATE TABLE IF NOT EXISTS dynamic_price_rule_value (                      │
+│       id              TEXT PRIMARY KEY,                                      │
+│       rule_id         TEXT NOT NULL REFERENCES dynamic_price_rule(id) ON     │
+│   DELETE CASCADE,                                                            │
+│       -- NULL = áp dụng cho tất cả room_type (default fallback)              │
+│       -- Nếu có giá trị = chỉ áp dụng cho room_type cụ thể                   │
+│       room_type       TEXT,                                                  │
+│       -- Loại điều chỉnh                                                     │
+│       -- "fixed"   : tăng/giảm số tiền cố định (VND)                         │
+│       -- "percent" : tăng/giảm theo phần trăm base                           │
+│       adjustment_type TEXT NOT NULL DEFAULT 'percent',                       │
+│       -- Giá trị điều chỉnh                                                  │
+│       -- Dương = tăng giá (surcharge), Âm = giảm giá (discount)              │
+│       -- VD: 20 (percent) = +20%, -50000 (fixed) = giảm 50k                  │
+│       adjustment_value INTEGER NOT NULL DEFAULT 0,                           │
+│       -- Giá trị min/max sau điều chỉnh (cap bảo vệ)                         │
+│       -- NULL = không giới hạn                                               │
+│       min_price       INTEGER,                                               │
+│       max_price       INTEGER,                                               │
+│       -- Metadata                                                            │
+│       created_at      TEXT NOT NULL DEFAULT (datetime('now')),               │
+│       updated_at      TEXT NOT NULL DEFAULT (datetime('now')),               │
+│       -- Mỗi rule chỉ có 1 value per room_type (hoặc 1 default NULL)         │
+│       UNIQUE(rule_id, room_type)                                             │
+│   );                                                                         │
+│                                                                              │
+│   CREATE INDEX IF NOT EXISTS idx_dynamic_price_rule_value_rule               │
+│       ON dynamic_price_rule_value(rule_id);                                  │
+│                                                                              │
+│   CREATE INDEX IF NOT EXISTS idx_dynamic_price_rule_value_room_type          │
+│       ON dynamic_price_rule_value(room_type)                                 │
+│       WHERE room_type IS NOT NULL;                                           │
+│                                                                              │
+│   -- ┌──────────────────────────────────────────────────────────────────┐    │
+│   -- │ ALTER bookings: Thêm trường liên kết pricing engine v2          │     │
+│   -- └──────────────────────────────────────────────────────────────────┘    │
+│   -- FK tới rate_plan đã áp dụng khi tính giá cho booking này                │
+│   -- NULL = booking cũ chưa dùng pricing engine v2 (backward compatible)     │
+│   ALTER TABLE bookings ADD COLUMN rate_plan_id TEXT REFERENCES               │
+│   rate_plan(id);                                                             │
+│                                                                              │
+│   -- JSON snapshot của các rules đã apply tại thời điểm check-in             │
+│   -- Lưu lại để audit trail, không bị ảnh hưởng khi rule thay đổi sau        │
+│   -- Format: [{"rule_id": "...", "rule_name": "...", "adjustment_type":      │
+│   "percent", "adjustment_value": 20}]                                        │
+│   ALTER TABLE bookings ADD COLUMN applied_rules_snapshot TEXT;               │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  FILE 2: mhm/src-tauri/src/db.rs — Thêm V16 migration block                  │
+│                                                                              │
+│  Thêm đoạn code sau ngay trước dòng Ok(()) cuối cùng của function            │
+│  run_migrations:                                                             │
+│                                                                              │
+│                                                                              │
+│       //  V16: Pricing Engine V2 — rate_plan, dynamic_price_rule,            │
+│   dynamic_price_rule_value                                                   │
+│       if current < 16 {                                                      │
+│           let mut tx = pool.begin().await?;                                  │
+│                                                                              │
+│           // rate_plan: bảng giá (pricing campaign/season)                   │
+│           sqlx::query(                                                       │
+│               "CREATE TABLE IF NOT EXISTS rate_plan (                        │
+│                   id              TEXT PRIMARY KEY,                          │
+│                   name            TEXT NOT NULL,                             │
+│                   description     TEXT,                                      │
+│                   effective_from  TEXT NOT NULL,                             │
+│                   effective_to    TEXT,                                      │
+│                   priority        INTEGER NOT NULL DEFAULT 0,                │
+│                   is_active       INTEGER NOT NULL DEFAULT 1,                │
+│                   base_rate_override INTEGER,                                │
+│                   created_by      TEXT,                                      │
+│                   created_at      TEXT NOT NULL DEFAULT (datetime('now')),   │
+│                   updated_at      TEXT NOT NULL DEFAULT (datetime('now'))    │
+│               )",                                                            │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           sqlx::query(                                                       │
+│               "CREATE INDEX IF NOT EXISTS idx_rate_plan_active               │
+│                   ON rate_plan(is_active, priority DESC, effective_from)",   │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           sqlx::query(                                                       │
+│               "CREATE INDEX IF NOT EXISTS idx_rate_plan_effective            │
+│                   ON rate_plan(effective_from, effective_to)                 │
+│                   WHERE is_active = 1",                                      │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           // dynamic_price_rule: điều kiện điều chỉnh giá                    │
+│           sqlx::query(                                                       │
+│               "CREATE TABLE IF NOT EXISTS dynamic_price_rule (               │
+│                   id              TEXT PRIMARY KEY,                          │
+│                   rate_plan_id    TEXT NOT NULL REFERENCES rate_plan(id)     │
+│   ON DELETE CASCADE,                                                         │
+│                   name            TEXT NOT NULL,                             │
+│                   rule_type       TEXT NOT NULL,                             │
+│                   condition_json  TEXT NOT NULL DEFAULT '{}',                │
+│                   priority        INTEGER NOT NULL DEFAULT 0,                │
+│                   is_stackable    INTEGER NOT NULL DEFAULT 1,                │
+│                   is_active       INTEGER NOT NULL DEFAULT 1,                │
+│                   created_at      TEXT NOT NULL DEFAULT (datetime('now')),   │
+│                   updated_at      TEXT NOT NULL DEFAULT (datetime('now'))    │
+│               )",                                                            │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           sqlx::query(                                                       │
+│               "CREATE INDEX IF NOT EXISTS idx_dynamic_price_rule_plan        │
+│                   ON dynamic_price_rule(rate_plan_id, priority DESC)         │
+│                   WHERE is_active = 1",                                      │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           sqlx::query(                                                       │
+│               "CREATE INDEX IF NOT EXISTS idx_dynamic_price_rule_type        │
+│                   ON dynamic_price_rule(rule_type, is_active)",              │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           // dynamic_price_rule_value: giá trị điều chỉnh cụ thể             │
+│           sqlx::query(                                                       │
+│               "CREATE TABLE IF NOT EXISTS dynamic_price_rule_value (         │
+│                   id              TEXT PRIMARY KEY,                          │
+│                   rule_id         TEXT NOT NULL REFERENCES                   │
+│   dynamic_price_rule(id) ON DELETE CASCADE,                                  │
+│                   room_type       TEXT,                                      │
+│                   adjustment_type TEXT NOT NULL DEFAULT 'percent',           │
+│                   adjustment_value INTEGER NOT NULL DEFAULT 0,               │
+│                   min_price       INTEGER,                                   │
+│                   max_price       INTEGER,                                   │
+│                   created_at      TEXT NOT NULL DEFAULT (datetime('now')),   │
+│                   updated_at      TEXT NOT NULL DEFAULT (datetime('now')),   │
+│                   UNIQUE(rule_id, room_type)                                 │
+│               )",                                                            │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           sqlx::query(                                                       │
+│               "CREATE INDEX IF NOT EXISTS                                    │
+│   idx_dynamic_price_rule_value_rule                                          │
+│                   ON dynamic_price_rule_value(rule_id)",                     │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           sqlx::query(                                                       │
+│               "CREATE INDEX IF NOT EXISTS                                    │
+│   idx_dynamic_price_rule_value_room_type                                     │
+│                   ON dynamic_price_rule_value(room_type)                     │
+│                   WHERE room_type IS NOT NULL",                              │
+│           )                                                                  │
+│           .execute(&mut *tx)                                                 │
+│           .await?;                                                           │
+│                                                                              │
+│           // ALTER bookings: add rate_plan_id and applied_rules_snapshot     │
+│           execute_compat_alter(                                              │
+│               &mut tx,                                                       │
+│               "ALTER TABLE bookings ADD COLUMN rate_plan_id TEXT             │
+│   REFERENCES rate_plan(id)",                                                 │
+│           )                                                                  │
+│           .await?;                                                           │
+│                                                                              │
+│           execute_compat_alter(                                              │
+│               &mut tx,                                                       │
+│               "ALTER TABLE bookings ADD COLUMN applied_rules_snapshot        │
+│   TEXT",                                                                     │
+│           )                                                                  │
+│           .await?;                                                           │
+│                                                                              │
+│           set_schema_version(&mut tx, 16).await?;                            │
+│           tx.commit().await?;                                                │
+│       }                                                                      │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  FILE 3: mhm/src-tauri/src/domain/pricing_engine_v2.rs — Rust domain logic   │
+│                                                                              │
+│                                                                              │
+│   //! Pricing Engine V2: Dynamic price calculation with rate plans and       │
+│   rules.                                                                     │
+│   //!                                                                        │
+│   //! Replaces the flat `pricing_rules` approach with layered rate plans     │
+│   //! inspired by SkyHotel's Vietnamese hotel pricing model.                 │
+│                                                                              │
+│   use chrono::{Datelike, NaiveDate, Weekday};                                │
+│   use serde::{Deserialize, Serialize};                                       │
+│                                                                              │
+│   use crate::money::{validate_transport_money_vnd, MoneyVnd};                │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Domain Models                                                           │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct RatePlan {                                                      │
+│       pub id: String,                                                        │
+│       pub name: String,                                                      │
+│       pub description: Option<String>,                                       │
+│       pub effective_from: String,                                            │
+│       pub effective_to: Option<String>,                                      │
+│       pub priority: i32,                                                     │
+│       pub is_active: bool,                                                   │
+│       pub base_rate_override: Option<MoneyVnd>,                              │
+│       pub created_by: Option<String>,                                        │
+│       pub created_at: String,                                                │
+│       pub updated_at: String,                                                │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]             │
+│   #[serde(rename_all = "snake_case")]                                        │
+│   pub enum DynamicRuleType {                                                 │
+│       DayOfWeek,                                                             │
+│       Occupancy,                                                             │
+│       LeadTime,                                                              │
+│       LengthOfStay,                                                          │
+│       DateRange,                                                             │
+│       GuestCount,                                                            │
+│   }                                                                          │
+│                                                                              │
+│   impl DynamicRuleType {                                                     │
+│       pub fn as_str(&self) -> &'static str {                                 │
+│           match self {                                                       │
+│               Self::DayOfWeek => "day_of_week",                              │
+│               Self::Occupancy => "occupancy",                                │
+│               Self::LeadTime => "lead_time",                                 │
+│               Self::LengthOfStay => "length_of_stay",                        │
+│               Self::DateRange => "date_range",                               │
+│               Self::GuestCount => "guest_count",                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       pub fn from_str(s: &str) -> Option<Self> {                             │
+│           match s {                                                          │
+│               "day_of_week" => Some(Self::DayOfWeek),                        │
+│               "occupancy" => Some(Self::Occupancy),                          │
+│               "lead_time" => Some(Self::LeadTime),                           │
+│               "length_of_stay" => Some(Self::LengthOfStay),                  │
+│               "date_range" => Some(Self::DateRange),                         │
+│               "guest_count" => Some(Self::GuestCount),                       │
+│               _ => None,                                                     │
+│           }                                                                  │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct DynamicPriceRule {                                              │
+│       pub id: String,                                                        │
+│       pub rate_plan_id: String,                                              │
+│       pub name: String,                                                      │
+│       pub rule_type: String,                                                 │
+│       pub condition_json: String,                                            │
+│       pub priority: i32,                                                     │
+│       pub is_stackable: bool,                                                │
+│       pub is_active: bool,                                                   │
+│       pub created_at: String,                                                │
+│       pub updated_at: String,                                                │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]             │
+│   #[serde(rename_all = "snake_case")]                                        │
+│   pub enum AdjustmentType {                                                  │
+│       Fixed,                                                                 │
+│       Percent,                                                               │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct DynamicPriceRuleValue {                                         │
+│       pub id: String,                                                        │
+│       pub rule_id: String,                                                   │
+│       pub room_type: Option<String>,                                         │
+│       pub adjustment_type: String,                                           │
+│       pub adjustment_value: MoneyVnd,                                        │
+│       pub min_price: Option<MoneyVnd>,                                       │
+│       pub max_price: Option<MoneyVnd>,                                       │
+│       pub created_at: String,                                                │
+│       pub updated_at: String,                                                │
+│   }                                                                          │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Rule Condition Models (parsed from condition_json)                      │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct DayOfWeekCondition {                                            │
+│       /// 0=Monday, 6=Sunday (ISO weekday)                                   │
+│       pub days: Vec<u8>,                                                     │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct OccupancyCondition {                                            │
+│       /// Minimum occupancy percentage to trigger                            │
+│       pub min_pct: f64,                                                      │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct LeadTimeCondition {                                             │
+│       /// Maximum days in advance (booking made <= N days before check-in)   │
+│       pub max_days: i32,                                                     │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct LengthOfStayCondition {                                         │
+│       /// Minimum nights for this rule to apply                              │
+│       pub min_nights: i32,                                                   │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct DateRangeCondition {                                            │
+│       /// ISO date "YYYY-MM-DD"                                              │
+│       pub from: String,                                                      │
+│       /// ISO date "YYYY-MM-DD"                                              │
+│       pub to: String,                                                        │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct GuestCountCondition {                                           │
+│       /// Minimum number of guests in room                                   │
+│       pub min_guests: i32,                                                   │
+│   }                                                                          │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Pricing Context (inputs for calculation)                                │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   #[derive(Debug, Clone)]                                                    │
+│   pub struct PricingContext {                                                │
+│       pub room_type: String,                                                 │
+│       pub base_price: MoneyVnd,                                              │
+│       pub check_in_date: NaiveDate,                                          │
+│       pub check_out_date: NaiveDate,                                         │
+│       pub booking_created_date: NaiveDate,                                   │
+│       pub guest_count: i32,                                                  │
+│       pub current_occupancy_pct: f64,                                        │
+│   }                                                                          │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Applied Rule Snapshot (stored on booking)                               │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct AppliedRuleSnapshot {                                           │
+│       pub rule_id: String,                                                   │
+│       pub rule_name: String,                                                 │
+│       pub rule_type: String,                                                 │
+│       pub adjustment_type: String,                                           │
+│       pub adjustment_value: MoneyVnd,                                        │
+│       pub computed_amount: MoneyVnd,                                         │
+│   }                                                                          │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Pricing Engine V2 — Core Calculation                                    │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct PricingEngineV2Result {                                         │
+│       pub rate_plan_id: String,                                              │
+│       pub rate_plan_name: String,                                            │
+│       pub base_price_per_night: MoneyVnd,                                    │
+│       pub nights: i32,                                                       │
+│       pub base_total: MoneyVnd,                                              │
+│       pub adjustment_total: MoneyVnd,                                        │
+│       pub final_total: MoneyVnd,                                             │
+│       pub applied_rules: Vec<AppliedRuleSnapshot>,                           │
+│       pub nightly_breakdown: Vec<NightlyPrice>,                              │
+│   }                                                                          │
+│                                                                              │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct NightlyPrice {                                                  │
+│       pub date: String,                                                      │
+│       pub base_price: MoneyVnd,                                              │
+│       pub adjusted_price: MoneyVnd,                                          │
+│       pub rules_applied: Vec<String>,                                        │
+│   }                                                                          │
+│                                                                              │
+│   /// Main entry point: calculate dynamic price for a stay                   │
+│   pub fn calculate_dynamic_price(                                            │
+│       ctx: &PricingContext,                                                  │
+│       rate_plan: &RatePlan,                                                  │
+│       rules: &[DynamicPriceRule],                                            │
+│       values: &[DynamicPriceRuleValue],                                      │
+│   ) -> Result<PricingEngineV2Result, String> {                               │
+│       let nights = (ctx.check_out_date - ctx.check_in_date).num_days() as    │
+│   i32;                                                                       │
+│       if nights <= 0 {                                                       │
+│           return Err("Check-out must be after check-in".to_string());        │
+│       }                                                                      │
+│                                                                              │
+│       let base_per_night =                                                   │
+│   rate_plan.base_rate_override.unwrap_or(ctx.base_price);                    │
+│       let mut nightly_breakdown: Vec<NightlyPrice> =                         │
+│   Vec::with_capacity(nights as usize);                                       │
+│       let mut all_applied_rules: Vec<AppliedRuleSnapshot> = Vec::new();      │
+│       let mut total_adjustment: MoneyVnd = 0;                                │
+│                                                                              │
+│       // Calculate price per night                                           │
+│       for night_idx in 0..nights {                                           │
+│           let stay_date = ctx                                                │
+│               .check_in_date                                                 │
+│               .checked_add_signed(chrono::Duration::days(night_idx as        │
+│   i64))                                                                      │
+│               .ok_or_else(|| "Date overflow".to_string())?;                  │
+│                                                                              │
+│           let mut night_price = base_per_night;                              │
+│           let mut night_rules: Vec<String> = Vec::new();                     │
+│           let mut non_stackable_applied = false;                             │
+│                                                                              │
+│           // Evaluate rules sorted by priority (highest first)               │
+│           let mut sorted_rules: Vec<&DynamicPriceRule> =                     │
+│               rules.iter().filter(|r| r.is_active).collect();                │
+│           sorted_rules.sort_by(|a, b| b.priority.cmp(&a.priority));          │
+│                                                                              │
+│           for rule in &sorted_rules {                                        │
+│               // Skip if non-stackable rule already applied                  │
+│               if non_stackable_applied && !rule.is_stackable {               │
+│                   continue;                                                  │
+│               }                                                              │
+│                                                                              │
+│               // Evaluate condition                                          │
+│               if !evaluate_rule_condition(rule, &stay_date, ctx, nights)?    │
+│   {                                                                          │
+│                   continue;                                                  │
+│               }                                                              │
+│                                                                              │
+│               // Find matching value (room_type specific > default NULL)     │
+│               let value = find_matching_value(values, &rule.id,              │
+│   &ctx.room_type);                                                           │
+│               let Some(value) = value else { continue };                     │
+│                                                                              │
+│               // Calculate adjustment                                        │
+│               let adjustment = calculate_adjustment(base_per_night,          │
+│   value)?;                                                                   │
+│                                                                              │
+│               night_price = apply_adjustment_with_caps(night_price,          │
+│   adjustment, value)?;                                                       │
+│               night_rules.push(rule.name.clone());                           │
+│                                                                              │
+│               // Record applied rule (only once per rule across all nights   │
+│   for snapshot)                                                              │
+│               if !all_applied_rules.iter().any(|r| r.rule_id == rule.id) {   │
+│                   all_applied_rules.push(AppliedRuleSnapshot {               │
+│                       rule_id: rule.id.clone(),                              │
+│                       rule_name: rule.name.clone(),                          │
+│                       rule_type: rule.rule_type.clone(),                     │
+│                       adjustment_type: value.adjustment_type.clone(),        │
+│                       adjustment_value: value.adjustment_value,              │
+│                       computed_amount: adjustment,                           │
+│                   });                                                        │
+│               }                                                              │
+│                                                                              │
+│               total_adjustment = total_adjustment                            │
+│                   .checked_add(adjustment)                                   │
+│                   .ok_or_else(|| "Adjustment overflow".to_string())?;        │
+│                                                                              │
+│               if !rule.is_stackable {                                        │
+│                   non_stackable_applied = true;                              │
+│               }                                                              │
+│           }                                                                  │
+│                                                                              │
+│           nightly_breakdown.push(NightlyPrice {                              │
+│               date: stay_date.format("%Y-%m-%d").to_string(),                │
+│               base_price: base_per_night,                                    │
+│               adjusted_price: night_price,                                   │
+│               rules_applied: night_rules,                                    │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       let base_total = base_per_night                                        │
+│           .checked_mul(nights as i64)                                        │
+│           .ok_or_else(|| "Base total overflow".to_string())?;                │
+│                                                                              │
+│       let final_total: MoneyVnd = nightly_breakdown                          │
+│           .iter()                                                            │
+│           .try_fold(0i64, |acc, n| acc.checked_add(n.adjusted_price))        │
+│           .ok_or_else(|| "Final total overflow".to_string())?;               │
+│                                                                              │
+│       validate_transport_money_vnd(final_total, "final_total").map_err(|e|   │
+│   e.message)?;                                                               │
+│                                                                              │
+│       Ok(PricingEngineV2Result {                                             │
+│           rate_plan_id: rate_plan.id.clone(),                                │
+│           rate_plan_name: rate_plan.name.clone(),                            │
+│           base_price_per_night: base_per_night,                              │
+│           nights,                                                            │
+│           base_total,                                                        │
+│           adjustment_total: final_total - base_total,                        │
+│           final_total,                                                       │
+│           applied_rules: all_applied_rules,                                  │
+│           nightly_breakdown,                                                 │
+│       })                                                                     │
+│   }                                                                          │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Rule Evaluation                                                         │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   fn evaluate_rule_condition(                                                │
+│       rule: &DynamicPriceRule,                                               │
+│       stay_date: &NaiveDate,                                                 │
+│       ctx: &PricingContext,                                                  │
+│       total_nights: i32,                                                     │
+│   ) -> Result<bool, String> {                                                │
+│       let rule_type = DynamicRuleType::from_str(&rule.rule_type)             │
+│           .ok_or_else(|| format!("Unknown rule_type: {}",                    │
+│   rule.rule_type))?;                                                         │
+│                                                                              │
+│       match rule_type {                                                      │
+│           DynamicRuleType::DayOfWeek => {                                    │
+│               let cond: DayOfWeekCondition =                                 │
+│   serde_json::from_str(&rule.condition_json)                                 │
+│                   .map_err(|e| format!("Invalid day_of_week condition:       │
+│   {e}"))?;                                                                   │
+│               let weekday_num = match stay_date.weekday() {                  │
+│                   Weekday::Mon => 0,                                         │
+│                   Weekday::Tue => 1,                                         │
+│                   Weekday::Wed => 2,                                         │
+│                   Weekday::Thu => 3,                                         │
+│                   Weekday::Fri => 4,                                         │
+│                   Weekday::Sat => 5,                                         │
+│                   Weekday::Sun => 6,                                         │
+│               };                                                             │
+│               Ok(cond.days.contains(&weekday_num))                           │
+│           }                                                                  │
+│           DynamicRuleType::Occupancy => {                                    │
+│               let cond: OccupancyCondition =                                 │
+│   serde_json::from_str(&rule.condition_json)                                 │
+│                   .map_err(|e| format!("Invalid occupancy condition:         │
+│   {e}"))?;                                                                   │
+│               Ok(ctx.current_occupancy_pct >= cond.min_pct)                  │
+│           }                                                                  │
+│           DynamicRuleType::LeadTime => {                                     │
+│               let cond: LeadTimeCondition =                                  │
+│   serde_json::from_str(&rule.condition_json)                                 │
+│                   .map_err(|e| format!("Invalid lead_time condition:         │
+│   {e}"))?;                                                                   │
+│               let lead_days = (ctx.check_in_date -                           │
+│   ctx.booking_created_date).num_days() as i32;                               │
+│               Ok(lead_days <= cond.max_days)                                 │
+│           }                                                                  │
+│           DynamicRuleType::LengthOfStay => {                                 │
+│               let cond: LengthOfStayCondition =                              │
+│   serde_json::from_str(&rule.condition_json)                                 │
+│                   .map_err(|e| format!("Invalid length_of_stay condition:    │
+│   {e}"))?;                                                                   │
+│               Ok(total_nights >= cond.min_nights)                            │
+│           }                                                                  │
+│           DynamicRuleType::DateRange => {                                    │
+│               let cond: DateRangeCondition =                                 │
+│   serde_json::from_str(&rule.condition_json)                                 │
+│                   .map_err(|e| format!("Invalid date_range condition:        │
+│   {e}"))?;                                                                   │
+│               let from = NaiveDate::parse_from_str(&cond.from, "%Y-%m-%d")   │
+│                   .map_err(|e| format!("Invalid date_range from: {e}"))?;    │
+│               let to = NaiveDate::parse_from_str(&cond.to, "%Y-%m-%d")       │
+│                   .map_err(|e| format!("Invalid date_range to: {e}"))?;      │
+│               Ok(*stay_date >= from && *stay_date <= to)                     │
+│           }                                                                  │
+│           DynamicRuleType::GuestCount => {                                   │
+│               let cond: GuestCountCondition =                                │
+│   serde_json::from_str(&rule.condition_json)                                 │
+│                   .map_err(|e| format!("Invalid guest_count condition:       │
+│   {e}"))?;                                                                   │
+│               Ok(ctx.guest_count >= cond.min_guests)                         │
+│           }                                                                  │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   fn find_matching_value<'a>(                                                │
+│       values: &'a [DynamicPriceRuleValue],                                   │
+│       rule_id: &str,                                                         │
+│       room_type: &str,                                                       │
+│   ) -> Option<&'a DynamicPriceRuleValue> {                                   │
+│       // First: exact room_type match                                        │
+│       let specific = values                                                  │
+│           .iter()                                                            │
+│           .find(|v| v.rule_id == rule_id && v.room_type.as_deref() ==        │
+│   Some(room_type));                                                          │
+│                                                                              │
+│       if specific.is_some() {                                                │
+│           return specific;                                                   │
+│       }                                                                      │
+│                                                                              │
+│       // Fallback: default (room_type = NULL)                                │
+│       values                                                                 │
+│           .iter()                                                            │
+│           .find(|v| v.rule_id == rule_id && v.room_type.is_none())           │
+│   }                                                                          │
+│                                                                              │
+│   fn calculate_adjustment(                                                   │
+│       base_price: MoneyVnd,                                                  │
+│       value: &DynamicPriceRuleValue,                                         │
+│   ) -> Result<MoneyVnd, String> {                                            │
+│       match value.adjustment_type.as_str() {                                 │
+│           "fixed" => Ok(value.adjustment_value),                             │
+│           "percent" => {                                                     │
+│               // adjustment_value is percentage * 100 basis points or just   │
+│   whole percent                                                              │
+│               // e.g. 20 means +20%                                          │
+│               let pct = value.adjustment_value as f64 / 100.0;               │
+│               let raw = (base_price as f64 * pct).round() as MoneyVnd;       │
+│               Ok(raw)                                                        │
+│           }                                                                  │
+│           other => Err(format!("Unknown adjustment_type: {other}")),         │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   fn apply_adjustment_with_caps(                                             │
+│       current_price: MoneyVnd,                                               │
+│       adjustment: MoneyVnd,                                                  │
+│       value: &DynamicPriceRuleValue,                                         │
+│   ) -> Result<MoneyVnd, String> {                                            │
+│       let mut new_price = current_price                                      │
+│           .checked_add(adjustment)                                           │
+│           .ok_or_else(|| "Price adjustment overflow".to_string())?;          │
+│                                                                              │
+│       // Apply min cap                                                       │
+│       if let Some(min) = value.min_price {                                   │
+│           if new_price < min {                                               │
+│               new_price = min;                                               │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       // Apply max cap                                                       │
+│       if let Some(max) = value.max_price {                                   │
+│           if new_price > max {                                               │
+│               new_price = max;                                               │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       // Never go below 0                                                    │
+│       if new_price < 0 {                                                     │
+│           new_price = 0;                                                     │
+│       }                                                                      │
+│                                                                              │
+│       Ok(new_price)                                                          │
+│   }                                                                          │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Utility: Find applicable rate plan for a date                           │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   /// Given a list of active rate plans, find the best one for the given     │
+│   date.                                                                      │
+│   /// Returns the highest-priority plan whose effective range includes the   │
+│   date.                                                                      │
+│   pub fn find_applicable_rate_plan(plans: &[RatePlan], date: &NaiveDate)     │
+│   -> Option<&RatePlan> {                                                     │
+│       let date_str = date.format("%Y-%m-%d").to_string();                    │
+│                                                                              │
+│       let mut applicable: Vec<&RatePlan> = plans                             │
+│           .iter()                                                            │
+│           .filter(|p| p.is_active)                                           │
+│           .filter(|p| p.effective_from <= date_str)                          │
+│           .filter(|p| match &p.effective_to {                                │
+│               Some(to) => *to >= date_str,                                   │
+│               None => true, // no end = always valid                         │
+│           })                                                                 │
+│           .collect();                                                        │
+│                                                                              │
+│       applicable.sort_by(|a, b| b.priority.cmp(&a.priority));                │
+│       applicable.first().copied()                                            │
+│   }                                                                          │
+│                                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│   // Unit Tests                                                              │
+│   // ═══════════════════════════════════════════════                         │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod tests {                                                                │
+│       use super::*;                                                          │
+│                                                                              │
+│       fn make_ctx() -> PricingContext {                                      │
+│           PricingContext {                                                   │
+│               room_type: "deluxe".to_string(),                               │
+│               base_price: 500_000,                                           │
+│               check_in_date: NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),   │
+│               check_out_date: NaiveDate::from_ymd_opt(2026, 5,               │
+│   4).unwrap(), // 3 nights                                                   │
+│               booking_created_date: NaiveDate::from_ymd_opt(2026, 4,         │
+│   30).unwrap(), // 1 day lead                                                │
+│               guest_count: 2,                                                │
+│               current_occupancy_pct: 70.0,                                   │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       fn make_rate_plan() -> RatePlan {                                      │
+│           RatePlan {                                                         │
+│               id: "rp-001".to_string(),                                      │
+│               name: "Standard 2026".to_string(),                             │
+│               description: None,                                             │
+│               effective_from: "2026-01-01".to_string(),                      │
+│               effective_to: Some("2026-12-31".to_string()),                  │
+│               priority: 10,                                                  │
+│               is_active: true,                                               │
+│               base_rate_override: None,                                      │
+│               created_by: None,                                              │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_no_rules_returns_base_price() {                                │
+│           let ctx = make_ctx();                                              │
+│           let plan = make_rate_plan();                                       │
+│           let result = calculate_dynamic_price(&ctx, &plan, &[],             │
+│   &[]).unwrap();                                                             │
+│                                                                              │
+│           assert_eq!(result.nights, 3);                                      │
+│           assert_eq!(result.base_total, 1_500_000);                          │
+│           assert_eq!(result.final_total, 1_500_000);                         │
+│           assert_eq!(result.adjustment_total, 0);                            │
+│           assert!(result.applied_rules.is_empty());                          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_weekend_surcharge_rule() {                                     │
+│           let ctx = PricingContext {                                         │
+│               // Fri May 1 -> Mon May 4: Sat(2) and Sun(3) are weekends      │
+│               check_in_date: NaiveDate::from_ymd_opt(2026, 5, 1).unwrap(),   │
+│   // Friday                                                                  │
+│               check_out_date: NaiveDate::from_ymd_opt(2026, 5,               │
+│   4).unwrap(), // Monday                                                     │
+│               ..make_ctx()                                                   │
+│           };                                                                 │
+│           let plan = make_rate_plan();                                       │
+│                                                                              │
+│           let rules = vec![DynamicPriceRule {                                │
+│               id: "rule-wknd".to_string(),                                   │
+│               rate_plan_id: "rp-001".to_string(),                            │
+│               name: "Weekend +20%".to_string(),                              │
+│               rule_type: "day_of_week".to_string(),                          │
+│               condition_json: r#"{"days": [5, 6]}"#.to_string(), // Sat,     │
+│   Sun                                                                        │
+│               priority: 10,                                                  │
+│               is_stackable: true,                                            │
+│               is_active: true,                                               │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let values = vec![DynamicPriceRuleValue {                          │
+│               id: "val-001".to_string(),                                     │
+│               rule_id: "rule-wknd".to_string(),                              │
+│               room_type: None, // applies to all                             │
+│               adjustment_type: "percent".to_string(),                        │
+│               adjustment_value: 20, // +20%                                  │
+│               min_price: None,                                               │
+│               max_price: None,                                               │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let result = calculate_dynamic_price(&ctx, &plan, &rules,          │
+│   &values).unwrap();                                                         │
+│                                                                              │
+│           // Fri: no adjustment = 500k                                       │
+│           // Sat: +20% = 600k                                                │
+│           // Sun: +20% = 600k                                                │
+│           assert_eq!(result.final_total, 1_700_000);                         │
+│           assert_eq!(result.applied_rules.len(), 1);                         │
+│           assert_eq!(result.applied_rules[0].rule_name, "Weekend +20%");     │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_length_of_stay_discount() {                                    │
+│           let ctx = PricingContext {                                         │
+│               check_in_date: NaiveDate::from_ymd_opt(2026, 5, 4).unwrap(),   │
+│   // Monday                                                                  │
+│               check_out_date: NaiveDate::from_ymd_opt(2026, 5,               │
+│   8).unwrap(), // Friday, 4 nights                                           │
+│               ..make_ctx()                                                   │
+│           };                                                                 │
+│           let plan = make_rate_plan();                                       │
+│                                                                              │
+│           let rules = vec![DynamicPriceRule {                                │
+│               id: "rule-los".to_string(),                                    │
+│               rate_plan_id: "rp-001".to_string(),                            │
+│               name: "Long stay -10%".to_string(),                            │
+│               rule_type: "length_of_stay".to_string(),                       │
+│               condition_json: r#"{"min_nights": 3}"#.to_string(),            │
+│               priority: 5,                                                   │
+│               is_stackable: true,                                            │
+│               is_active: true,                                               │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let values = vec![DynamicPriceRuleValue {                          │
+│               id: "val-los".to_string(),                                     │
+│               rule_id: "rule-los".to_string(),                               │
+│               room_type: Some("deluxe".to_string()),                         │
+│               adjustment_type: "percent".to_string(),                        │
+│               adjustment_value: -10, // -10% discount                        │
+│               min_price: Some(200_000),                                      │
+│               max_price: None,                                               │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let result = calculate_dynamic_price(&ctx, &plan, &rules,          │
+│   &values).unwrap();                                                         │
+│                                                                              │
+│           // 4 nights x 500k - 10% per night = 4 x 450k = 1,800,000          │
+│           assert_eq!(result.final_total, 1_800_000);                         │
+│           assert_eq!(result.base_total, 2_000_000);                          │
+│           assert_eq!(result.adjustment_total, -200_000);                     │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_date_range_tet_surcharge() {                                   │
+│           let ctx = PricingContext {                                         │
+│               check_in_date: NaiveDate::from_ymd_opt(2026, 1,                │
+│   28).unwrap(),                                                              │
+│               check_out_date: NaiveDate::from_ymd_opt(2026, 1,               │
+│   31).unwrap(), // 3 nights over Tet                                         │
+│               booking_created_date: NaiveDate::from_ymd_opt(2026, 1,         │
+│   15).unwrap(),                                                              │
+│               ..make_ctx()                                                   │
+│           };                                                                 │
+│           let plan = make_rate_plan();                                       │
+│                                                                              │
+│           let rules = vec![DynamicPriceRule {                                │
+│               id: "rule-tet".to_string(),                                    │
+│               rate_plan_id: "rp-001".to_string(),                            │
+│               name: "Tết +50%".to_string(),                                  │
+│               rule_type: "date_range".to_string(),                           │
+│               condition_json: r#"{"from": "2026-01-28", "to":                │
+│   "2026-02-03"}"#.to_string(),                                               │
+│               priority: 20,                                                  │
+│               is_stackable: false, // not stackable with others              │
+│               is_active: true,                                               │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let values = vec![DynamicPriceRuleValue {                          │
+│               id: "val-tet".to_string(),                                     │
+│               rule_id: "rule-tet".to_string(),                               │
+│               room_type: None,                                               │
+│               adjustment_type: "percent".to_string(),                        │
+│               adjustment_value: 50,                                          │
+│               min_price: None,                                               │
+│               max_price: Some(1_000_000), // cap at 1M per night             │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let result = calculate_dynamic_price(&ctx, &plan, &rules,          │
+│   &values).unwrap();                                                         │
+│                                                                              │
+│           // 3 nights x (500k + 250k) = 3 x 750k = 2,250,000                 │
+│           assert_eq!(result.final_total, 2_250_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_base_rate_override() {                                         │
+│           let ctx = make_ctx();                                              │
+│           let plan = RatePlan {                                              │
+│               base_rate_override: Some(600_000), // override room price      │
+│               ..make_rate_plan()                                             │
+│           };                                                                 │
+│                                                                              │
+│           let result = calculate_dynamic_price(&ctx, &plan, &[],             │
+│   &[]).unwrap();                                                             │
+│                                                                              │
+│           assert_eq!(result.base_price_per_night, 600_000);                  │
+│           assert_eq!(result.base_total, 1_800_000);                          │
+│           assert_eq!(result.final_total, 1_800_000);                         │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_min_price_cap_prevents_below_floor() {                         │
+│           let ctx = PricingContext {                                         │
+│               check_in_date: NaiveDate::from_ymd_opt(2026, 5, 4).unwrap(),   │
+│               check_out_date: NaiveDate::from_ymd_opt(2026, 5,               │
+│   5).unwrap(),                                                               │
+│               ..make_ctx()                                                   │
+│           };                                                                 │
+│           let plan = make_rate_plan();                                       │
+│                                                                              │
+│           let rules = vec![DynamicPriceRule {                                │
+│               id: "rule-mega-discount".to_string(),                          │
+│               rate_plan_id: "rp-001".to_string(),                            │
+│               name: "Flash sale -80%".to_string(),                           │
+│               rule_type: "length_of_stay".to_string(),                       │
+│               condition_json: r#"{"min_nights": 1}"#.to_string(),            │
+│               priority: 1,                                                   │
+│               is_stackable: true,                                            │
+│               is_active: true,                                               │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let values = vec![DynamicPriceRuleValue {                          │
+│               id: "val-mega".to_string(),                                    │
+│               rule_id: "rule-mega-discount".to_string(),                     │
+│               room_type: None,                                               │
+│               adjustment_type: "percent".to_string(),                        │
+│               adjustment_value: -80,                                         │
+│               min_price: Some(200_000), // floor at 200k                     │
+│               max_price: None,                                               │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let result = calculate_dynamic_price(&ctx, &plan, &rules,          │
+│   &values).unwrap();                                                         │
+│                                                                              │
+│           // 500k - 80% = 100k, but min_price = 200k                         │
+│           assert_eq!(result.final_total, 200_000);                           │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_find_applicable_rate_plan() {                                  │
+│           let plans = vec![                                                  │
+│               RatePlan {                                                     │
+│                   id: "low".to_string(),                                     │
+│                   priority: 1,                                               │
+│                   effective_from: "2026-01-01".to_string(),                  │
+│                   effective_to: Some("2026-12-31".to_string()),              │
+│                   is_active: true,                                           │
+│                   ..make_rate_plan()                                         │
+│               },                                                             │
+│               RatePlan {                                                     │
+│                   id: "high".to_string(),                                    │
+│                   priority: 100,                                             │
+│                   effective_from: "2026-04-01".to_string(),                  │
+│                   effective_to: Some("2026-06-30".to_string()),              │
+│                   is_active: true,                                           │
+│                   ..make_rate_plan()                                         │
+│               },                                                             │
+│           ];                                                                 │
+│                                                                              │
+│           let may_date = NaiveDate::from_ymd_opt(2026, 5, 15).unwrap();      │
+│           let result = find_applicable_rate_plan(&plans, &may_date);         │
+│           assert_eq!(result.unwrap().id, "high");                            │
+│                                                                              │
+│           let jan_date = NaiveDate::from_ymd_opt(2026, 1, 15).unwrap();      │
+│           let result = find_applicable_rate_plan(&plans, &jan_date);         │
+│           assert_eq!(result.unwrap().id, "low");                             │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_room_type_specific_value_takes_priority() {                    │
+│           let ctx = make_ctx(); // room_type = "deluxe"                      │
+│           let plan = make_rate_plan();                                       │
+│                                                                              │
+│           let rules = vec![DynamicPriceRule {                                │
+│               id: "rule-1".to_string(),                                      │
+│               rate_plan_id: "rp-001".to_string(),                            │
+│               name: "Generic surcharge".to_string(),                         │
+│               rule_type: "length_of_stay".to_string(),                       │
+│               condition_json: r#"{"min_nights": 1}"#.to_string(),            │
+│               priority: 1,                                                   │
+│               is_stackable: true,                                            │
+│               is_active: true,                                               │
+│               created_at: "2026-01-01T00:00:00".to_string(),                 │
+│               updated_at: "2026-01-01T00:00:00".to_string(),                 │
+│           }];                                                                │
+│                                                                              │
+│           let values = vec![                                                 │
+│               // Default: +10%                                               │
+│               DynamicPriceRuleValue {                                        │
+│                   id: "val-default".to_string(),                             │
+│                   rule_id: "rule-1".to_string(),                             │
+│                   room_type: None,                                           │
+│                   adjustment_type: "percent".to_string(),                    │
+│                   adjustment_value: 10,                                      │
+│                   min_price: None,                                           │
+│                   max_price: None,                                           │
+│                   created_at: "2026-01-01T00:00:00".to_string(),             │
+│                   updated_at: "2026-01-01T00:00:00".to_string(),             │
+│               },                                                             │
+│               // Deluxe specific: +30%                                       │
+│               DynamicPriceRuleValue {                                        │
+│                   id: "val-deluxe".to_string(),                              │
+│                   rule_id: "rule-1".to_string(),                             │
+│                   room_type: Some("deluxe".to_string()),                     │
+│                   adjustment_type: "percent".to_string(),                    │
+│                   adjustment_value: 30,                                      │
+│                   min_price: None,                                           │
+│                   max_price: None,                                           │
+│                   created_at: "2026-01-01T00:00:00".to_string(),             │
+│                   updated_at: "2026-01-01T00:00:00".to_string(),             │
+│               },                                                             │
+│           ];                                                                 │
+│                                                                              │
+│           let result = calculate_dynamic_price(&ctx, &plan, &rules,          │
+│   &values).unwrap();                                                         │
+│                                                                              │
+│           // Should use deluxe +30%: 3 nights x (500k + 150k) = 1,950,000    │
+│           assert_eq!(result.final_total, 1_950_000);                         │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  FILE 4: mhm/src-tauri/src/domain/mod.rs — Đăng ký module                    │
+│                                                                              │
+│  Thêm dòng sau vào file mhm/src-tauri/src/domain/mod.rs:                     │
+│                                                                              │
+│                                                                              │
+│   pub mod pricing_engine_v2;                                                 │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│  Bước 1: Tạo file SQL migration (reference/documentation)                    │
+│                                                                              │
+│                                                                              │
+│   mkdir -p mhm/src-tauri/migrations                                          │
+│                                                                              │
+│                                                                              │
+│  Tạo file mhm/src-tauri/migrations/0001_pricing_engine_v2.sql với nội dung   │
+│  FILE 1 ở trên.                                                              │
+│                                                                              │
+│  Bước 2: Thêm V16 migration vào db.rs                                        │
+│                                                                              │
+│  Mở file mhm/src-tauri/src/db.rs, tìm dòng cuối cùng trong function          │
+│  run_migrations:                                                             │
+│                                                                              │
+│                                                                              │
+│       //  V15: Command recovery queue and audit actions                      │
+│       if current < 15 {                                                      │
+│           // ... existing code ...                                           │
+│       }                                                                      │
+│       Ok(())  // <-- ĐÂY                                                     │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  Chèn block V16 (FILE 2) ngay trước Ok(()).                                  │
+│                                                                              │
+│  Bước 3: Tạo domain module                                                   │
+│                                                                              │
+│                                                                              │
+│   # Tạo file mới                                                             │
+│   touch mhm/src-tauri/src/domain/pricing_engine_v2.rs                        │
+│                                                                              │
+│                                                                              │
+│  Paste nội dung FILE 3 vào.                                                  │
+│                                                                              │
+│  Bước 4: Đăng ký module                                                      │
+│                                                                              │
+│  Mở mhm/src-tauri/src/domain/mod.rs và thêm:                                 │
+│                                                                              │
+│                                                                              │
+│   pub mod pricing_engine_v2;                                                 │
+│                                                                              │
+│                                                                              │
+│  Bước 5: Cập nhật test assertion                                             │
+│                                                                              │
+│  Trong file db.rs, tìm test migrations_run_to_latest_schema_version và       │
+│  update:                                                                     │
+│                                                                              │
+│                                                                              │
+│   assert_eq!(version, 16); // was 15                                         │
+│                                                                              │
+│                                                                              │
+│  Bước 6: Verify                                                              │
+│                                                                              │
+│                                                                              │
+│   cd mhm                                                                     │
+│   cargo check --manifest-path src-tauri/Cargo.toml                           │
+│   cargo test --manifest-path src-tauri/Cargo.toml                            │
+│   cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D      │
+│   warnings                                                                   │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Tóm tắt kiến trúc                                                           │
+│                                                                              │
+│                                                                              │
+│   ┌─────────────────────────────────────────────────────────┐                │
+│   │                    rate_plan                              │              │
+│   │  (Bảng giá: "Giá Tết", "Giá hè", "Giá mặc định")      │                  │
+│   ├─────────────────────────────────────────────────────────┤                │
+│   │  id, name, effective_from/to, priority, is_active        │               │
+│   │  base_rate_override (optional, overrides room.base_price)│               │
+│   └──────────────────────┬──────────────────────────────────┘                │
+│                          │ 1:N                                               │
+│                          ▼                                                   │
+│   ┌─────────────────────────────────────────────────────────┐                │
+│   │               dynamic_price_rule                         │               │
+│   │  (Điều kiện: "Weekend +20%", "Tet +50%", "3đêm -10%")  │                 │
+│   ├─────────────────────────────────────────────────────────┤                │
+│   │  rule_type: day_of_week|occupancy|lead_time|...          │               │
+│   │  condition_json: {"days":[5,6]} / {"min_nights":3}       │               │
+│   │  priority, is_stackable                                  │               │
+│   └──────────────────────┬──────────────────────────────────┘                │
+│                          │ 1:N                                               │
+│                          ▼                                                   │
+│   ┌─────────────────────────────────────────────────────────┐                │
+│   │           dynamic_price_rule_value                        │              │
+│   │  (Giá trị: +20% cho deluxe, +50k fixed cho standard)    │                │
+│   ├─────────────────────────────────────────────────────────┤                │
+│   │  room_type (NULL=all), adjustment_type, adjustment_value │               │
+│   │  min_price, max_price (caps bảo vệ)                      │               │
+│   └─────────────────────────────────────────────────────────┘                │
+│                                                                              │
+│   bookings.rate_plan_id ──────► rate_plan.id                                 │
+│   bookings.applied_rules_snapshot (JSON audit trail)                         │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

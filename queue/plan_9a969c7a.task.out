@@ -1,0 +1,187 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│                     TASK 11: Vitest E2E check-in dialog                      │
+│                                                                              │
+│  Tôi cần xem cấu trúc hiện tại của project để viết test phù hợp với          │
+│  component thực tế.Bây giờ tôi sẽ tạo file test hoàn chỉnh. Dựa trên         │
+│  context từ design.md và proposal.md, tôi hiểu rằng:                         │
+│                                                                              │
+│   1 CheckinSheet là một Sheet/Dialog component dùng shadcn/ui                │
+│   2 Nó sử dụng invoke('pricing_preview', ...) để gọi pricing engine          │
+│   3 Có "quick mode" và normal mode                                           │
+│   4 Store useHotelStore cung cấp rooms, checkIn function, etc.               │
+│                                                                              │
+│  Dưới đây là file test hoàn chỉnh:                                           │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: mhm/src/components/CheckinSheet.test.tsx                              │
+│                                                                              │
+│                                                                              │
+│   import { describe, test, expect, vi, beforeEach } from "vitest";           │
+│   import { render, screen, waitFor } from "@testing-library/react";          │
+│   import userEvent from "@testing-library/user-event";                       │
+│   import CheckinSheet from "./CheckinSheet";                                 │
+│                                                                              │
+│   // Mock the Tauri invoke IPC                                               │
+│   const mockInvoke = vi.fn();                                                │
+│   vi.mock("@tauri-apps/api/core", () => ({                                   │
+│     invoke: (...args: unknown[]) => mockInvoke(...args),                     │
+│   }));                                                                       │
+│                                                                              │
+│   // Mock useHotelStore to provide rooms and state                           │
+│   vi.mock("../stores/useHotelStore", () => ({                                │
+│     useHotelStore: () => ({                                                  │
+│       rooms: [                                                               │
+│         { id: "101", status: "vacant", type: "standard", base_price:         │
+│   350000 },                                                                  │
+│         { id: "102", status: "occupied", type: "standard", base_price:       │
+│   350000 },                                                                  │
+│         { id: "201", status: "vacant", type: "superior", base_price:         │
+│   500000 },                                                                  │
+│       ],                                                                     │
+│       checkIn: vi.fn(),                                                      │
+│       fetchRooms: vi.fn(),                                                   │
+│       isCheckinOpen: true,                                                   │
+│       setCheckinOpen: vi.fn(),                                               │
+│     }),                                                                      │
+│   }));                                                                       │
+│                                                                              │
+│   describe("CheckinSheet", () => {                                           │
+│     beforeEach(() => {                                                       │
+│       mockInvoke.mockReset();                                                │
+│       mockInvoke.mockResolvedValue({                                         │
+│         line_items: [{ label: "1 đêm × 350.000đ", amount: 350000 }],         │
+│         room_subtotal: 350000,                                               │
+│         currency: "VND",                                                     │
+│       });                                                                    │
+│     });                                                                      │
+│                                                                              │
+│     test("renders title", () => {                                            │
+│       render(<CheckinSheet />);                                              │
+│       expect(screen.getByText("Check-in Khách Mới")).toBeInTheDocument();    │
+│     });                                                                      │
+│                                                                              │
+│     test("room selector shows vacant rooms", () => {                         │
+│       render(<CheckinSheet />);                                              │
+│       // Only vacant rooms should appear as selectable options               │
+│       expect(screen.getByText("101")).toBeInTheDocument();                   │
+│       expect(screen.getByText("201")).toBeInTheDocument();                   │
+│       // Occupied room 102 should NOT be shown                               │
+│       expect(screen.queryByText("102")).not.toBeInTheDocument();             │
+│     });                                                                      │
+│                                                                              │
+│     test("pricing preview called on room select", async () => {              │
+│       const user = userEvent.setup();                                        │
+│       render(<CheckinSheet />);                                              │
+│                                                                              │
+│       // Click on room 101 to select it                                      │
+│       const room101 = screen.getByText("101");                               │
+│       await user.click(room101);                                             │
+│                                                                              │
+│       await waitFor(() => {                                                  │
+│         expect(mockInvoke).toHaveBeenCalledWith(                             │
+│           "pricing_preview",                                                 │
+│           expect.objectContaining({                                          │
+│             room_id: "101",                                                  │
+│           })                                                                 │
+│         );                                                                   │
+│       });                                                                    │
+│     });                                                                      │
+│                                                                              │
+│     test("quick mode hides CCCD field", () => {                              │
+│       render(<CheckinSheet />);                                              │
+│       // In quick mode (default), the CCCD/ID card field is not shown        │
+│       expect(screen.queryByLabelText("Số CCCD")).not.toBeInTheDocument();    │
+│     });                                                                      │
+│                                                                              │
+│     test("submit disabled without guest name", () => {                       │
+│       render(<CheckinSheet />);                                              │
+│       const submitButton = screen.getByRole("button", { name: /check-in/i    │
+│   });                                                                        │
+│       expect(submitButton).toBeDisabled();                                   │
+│     });                                                                      │
+│   });                                                                        │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: mhm/vitest.config.ts (nếu chưa có)                                    │
+│                                                                              │
+│                                                                              │
+│   import { defineConfig } from "vitest/config";                              │
+│   import react from "@vitejs/plugin-react";                                  │
+│   import path from "path";                                                   │
+│                                                                              │
+│   export default defineConfig({                                              │
+│     plugins: [react()],                                                      │
+│     resolve: {                                                               │
+│       alias: {                                                               │
+│         "@": path.resolve(__dirname, "./src"),                               │
+│         "@tauri-apps/api/core": path.resolve(                                │
+│           __dirname,                                                         │
+│           "./src/__mocks__/tauri-core.ts"                                    │
+│         ),                                                                   │
+│       },                                                                     │
+│     },                                                                       │
+│     test: {                                                                  │
+│       globals: true,                                                         │
+│       environment: "jsdom",                                                  │
+│       setupFiles: ["./tests/setup.ts"],                                      │
+│       css: true,                                                             │
+│     },                                                                       │
+│   });                                                                        │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: mhm/tests/setup.ts                                                    │
+│                                                                              │
+│                                                                              │
+│   import "@testing-library/jest-dom/vitest";                                 │
+│   import { cleanup } from "@testing-library/react";                          │
+│   import { afterEach } from "vitest";                                        │
+│                                                                              │
+│   afterEach(() => {                                                          │
+│     cleanup();                                                               │
+│   });                                                                        │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: mhm/src/__mocks__/tauri-core.ts                                       │
+│                                                                              │
+│                                                                              │
+│   import { vi } from "vitest";                                               │
+│                                                                              │
+│   export const invoke = vi.fn().mockResolvedValue(undefined);                │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Giải thích                                                                  │
+│                                                                              │
+│  Đây là 5 smoke tests cho CheckinSheet:                                      │
+│                                                                              │
+│   1 renders title — Kiểm tra component render đúng tiêu đề "Check-in Khách   │
+│     Mới".                                                                    │
+│   2 room selector shows vacant rooms — Chỉ phòng có status: "vacant" mới     │
+│     hiện trong selector (101, 201). Phòng đang occupied (102) bị ẩn.         │
+│   3 pricing preview called on room select — Khi user click chọn phòng 101,   │
+│     component gọi invoke('pricing_preview', { room_id: '101', ... }) để lấy  │
+│     preview giá.                                                             │
+│   4 quick mode hides CCCD field — Ở chế độ quick (mặc định), trường "Số      │
+│     CCCD" không hiển thị để tăng tốc check-in.                               │
+│   5 submit disabled without guest name — Nút Check-in bị disable khi chưa    │
+│     nhập tên khách, đảm bảo validation cơ bản.                               │
+│                                                                              │
+│  Lưu ý quan trọng: Test file này mock hoàn toàn @tauri-apps/api/core (thông  │
+│  qua alias trong vitest.config.ts) và useHotelStore (thông qua vi.mock),     │
+│  nên chạy hoàn toàn trong jsdom mà không cần Tauri runtime. Component        │
+│  CheckinSheet cần implement tương ứng với các expectation trong test — nếu   │
+│  component hiện tại có khác biệt về text/structure, hãy điều chỉnh selector  │
+│  trong test cho phù hợp.                                                     │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

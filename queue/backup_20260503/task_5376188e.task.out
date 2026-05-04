@@ -1,0 +1,314 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│                                                                              │
+│   // File: src-tauri/src/pricing/tests/case_e1_extra_bed.rs                  │
+│   //                                                                         │
+│   // Mục tiêu:                                                               │
+│   // - Unit test cho case E1 (extra bed)                                     │
+│   // - Thiết kế để dễ gắn vào pricing engine hiện có                         │
+│   // - Nếu project của bạn đã có engine thật, chỉ cần thay phần              │
+│   mock/adaptor ở cuối file                                                   │
+│   //                                                                         │
+│   // Cách dùng nhanh:                                                        │
+│   // 1) Nếu project đã có hàm pricing thật:                                  │
+│   //    - Sửa import ở phần `use crate::...`                                 │
+│   //    - Sửa hàm `run_case_e1_with_real_engine` để gọi engine thật          │
+│   // 2) Nếu project chưa có test harness chuẩn:                              │
+│   //    - Giữ nguyên file này trong module tests                             │
+│   //    - Chạy: cargo test case_e1_extra_bed -- --nocapture                  │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod case_e1_extra_bed {                                                    │
+│       use rust_decimal::Decimal;                                             │
+│       use rust_decimal_macros::dec;                                          │
+│       use serde::{Deserialize, Serialize};                                   │
+│                                                                              │
+│       // =========================================================           │
+│       // Domain test models tối thiểu cho case E1                            │
+│       // =========================================================           │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]         │
+│       enum ExtraBedChargeMode {                                              │
+│           PerBedPerNight,                                                    │
+│       }                                                                      │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]         │
+│       struct ExtraBedPolicy {                                                │
+│           enabled: bool,                                                     │
+│           charge_mode: ExtraBedChargeMode,                                   │
+│           price_per_bed_per_night: Decimal,                                  │
+│       }                                                                      │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]         │
+│       struct OccupancyInput {                                                │
+│           adults: u32,                                                       │
+│           children: u32,                                                     │
+│           extra_beds: u32,                                                   │
+│           nights: u32,                                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]         │
+│       struct RoomRateInput {                                                 │
+│           room_rate_per_night: Decimal,                                      │
+│           occupancy: OccupancyInput,                                         │
+│           extra_bed_policy: ExtraBedPolicy,                                  │
+│       }                                                                      │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]         │
+│       struct PriceLine {                                                     │
+│           code: String,                                                      │
+│           description: String,                                               │
+│           unit_price: Decimal,                                               │
+│           quantity: Decimal,                                                 │
+│           amount: Decimal,                                                   │
+│       }                                                                      │
+│                                                                              │
+│       #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]         │
+│       struct PricingResult {                                                 │
+│           room_amount: Decimal,                                              │
+│           extra_bed_amount: Decimal,                                         │
+│           subtotal: Decimal,                                                 │
+│           lines: Vec<PriceLine>,                                             │
+│       }                                                                      │
+│                                                                              │
+│       // =========================================================           │
+│       // Business flow cho case E1 (extra bed)                               │
+│       // =========================================================           │
+│       //                                                                     │
+│       // Luồng nghiệp vụ:                                                    │
+│       // - Giá phòng cơ bản = room_rate_per_night * nights                   │
+│       // - Nếu extra bed enabled:                                            │
+│       //      extra_bed_amount = price_per_bed_per_night * extra_beds *      │
+│   nights                                                                     │
+│       // - subtotal = room_amount + extra_bed_amount                         │
+│       //                                                                     │
+│       // Đây là implementation tối thiểu để unit test xác nhận logic E1.     │
+│       // Nếu engine thật đã tồn tại, thay adaptor bên dưới để dùng           │
+│   production code.                                                           │
+│       // =========================================================           │
+│                                                                              │
+│       fn calculate_case_e1(input: &RoomRateInput) -> PricingResult {         │
+│           let room_amount = input.room_rate_per_night *                      │
+│   Decimal::from(input.occupancy.nights);                                     │
+│                                                                              │
+│           let extra_bed_amount = if input.extra_bed_policy.enabled {         │
+│               match input.extra_bed_policy.charge_mode {                     │
+│                   ExtraBedChargeMode::PerBedPerNight => {                    │
+│                       input.extra_bed_policy.price_per_bed_per_night         │
+│                           * Decimal::from(input.occupancy.extra_beds)        │
+│                           * Decimal::from(input.occupancy.nights)            │
+│                   }                                                          │
+│               }                                                              │
+│           } else {                                                           │
+│               dec!(0)                                                        │
+│           };                                                                 │
+│                                                                              │
+│           let subtotal = room_amount + extra_bed_amount;                     │
+│                                                                              │
+│           let mut lines = vec![PriceLine {                                   │
+│               code: "ROOM".to_string(),                                      │
+│               description: "Room charge".to_string(),                        │
+│               unit_price: input.room_rate_per_night,                         │
+│               quantity: Decimal::from(input.occupancy.nights),               │
+│               amount: room_amount,                                           │
+│           }];                                                                │
+│                                                                              │
+│           if extra_bed_amount > dec!(0) {                                    │
+│               lines.push(PriceLine {                                         │
+│                   code: "EXTRA_BED".to_string(),                             │
+│                   description: "Extra bed charge".to_string(),               │
+│                   unit_price:                                                │
+│   input.extra_bed_policy.price_per_bed_per_night,                            │
+│                   quantity: Decimal::from(input.occupancy.extra_beds *       │
+│   input.occupancy.nights),                                                   │
+│                   amount: extra_bed_amount,                                  │
+│               });                                                            │
+│           }                                                                  │
+│                                                                              │
+│           PricingResult {                                                    │
+│               room_amount,                                                   │
+│               extra_bed_amount,                                              │
+│               subtotal,                                                      │
+│               lines,                                                         │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       // =========================================================           │
+│       // Adaptor để map sang engine thật nếu project đã có implementation    │
+│       // =========================================================           │
+│       //                                                                     │
+│       // Thay nội dung hàm này để gọi production pricing engine.             │
+│       //                                                                     │
+│       // Ví dụ:                                                              │
+│       // fn run_case_e1_with_real_engine(input: &RoomRateInput) ->           │
+│   PricingResult {                                                            │
+│       //     let req = BookingPricingRequest { ... };                        │
+│       //     let out = crate::pricing::engine::calculate(req).unwrap();      │
+│       //     PricingResult {                                                 │
+│       //         room_amount: out.summary.room_amount,                       │
+│       //         extra_bed_amount: out.summary.extra_bed_amount,             │
+│       //         subtotal: out.summary.subtotal,                             │
+│       //         lines: out.lines.into_iter().map(...).collect(),            │
+│       //     }                                                               │
+│       // }                                                                   │
+│       // =========================================================           │
+│                                                                              │
+│       fn run_case_e1_with_real_engine(input: &RoomRateInput) ->              │
+│   PricingResult {                                                            │
+│           calculate_case_e1(input)                                           │
+│       }                                                                      │
+│                                                                              │
+│       // =========================================================           │
+│       // Test data builder                                                   │
+│       // =========================================================           │
+│                                                                              │
+│       fn make_case_e1_input() -> RoomRateInput {                             │
+│           RoomRateInput {                                                    │
+│               room_rate_per_night: dec!(1000000),                            │
+│               occupancy: OccupancyInput {                                    │
+│                   adults: 2,                                                 │
+│                   children: 1,                                               │
+│                   extra_beds: 1,                                             │
+│                   nights: 2,                                                 │
+│               },                                                             │
+│               extra_bed_policy: ExtraBedPolicy {                             │
+│                   enabled: true,                                             │
+│                   charge_mode: ExtraBedChargeMode::PerBedPerNight,           │
+│                   price_per_bed_per_night: dec!(300000),                     │
+│               },                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       // =========================================================           │
+│       // Unit test: case E1 (extra bed)                                      │
+│       // =========================================================           │
+│       //                                                                     │
+│       // Expected:                                                           │
+│       // - room_amount      = 1,000,000 * 2 = 2,000,000                      │
+│       // - extra_bed_amount =   300,000 * 1 * 2 = 600,000                    │
+│       // - subtotal         = 2,600,000                                      │
+│       // =========================================================           │
+│                                                                              │
+│       #[test]                                                                │
+│       fn                                                                     │
+│   unit_test_case_e1_extra_bed_should_add_extra_bed_charge_into_subtotal()    │
+│   {                                                                          │
+│           let input = make_case_e1_input();                                  │
+│                                                                              │
+│           let result = run_case_e1_with_real_engine(&input);                 │
+│                                                                              │
+│           assert_eq!(result.room_amount, dec!(2000000));                     │
+│           assert_eq!(result.extra_bed_amount, dec!(600000));                 │
+│           assert_eq!(result.subtotal, dec!(2600000));                        │
+│                                                                              │
+│           assert_eq!(result.lines.len(), 2);                                 │
+│                                                                              │
+│           assert_eq!(result.lines[0].code, "ROOM");                          │
+│           assert_eq!(result.lines[0].unit_price, dec!(1000000));             │
+│           assert_eq!(result.lines[0].quantity, dec!(2));                     │
+│           assert_eq!(result.lines[0].amount, dec!(2000000));                 │
+│                                                                              │
+│           assert_eq!(result.lines[1].code, "EXTRA_BED");                     │
+│           assert_eq!(result.lines[1].unit_price, dec!(300000));              │
+│           assert_eq!(result.lines[1].quantity, dec!(2)); // 1 giường * 2     │
+│   đêm                                                                        │
+│           assert_eq!(result.lines[1].amount, dec!(600000));                  │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn unit_test_case_e1_extra_bed_should_be_zero_when_policy_disabled()   │
+│   {                                                                          │
+│           let mut input = make_case_e1_input();                              │
+│           input.extra_bed_policy.enabled = false;                            │
+│                                                                              │
+│           let result = run_case_e1_with_real_engine(&input);                 │
+│                                                                              │
+│           assert_eq!(result.room_amount, dec!(2000000));                     │
+│           assert_eq!(result.extra_bed_amount, dec!(0));                      │
+│           assert_eq!(result.subtotal, dec!(2000000));                        │
+│                                                                              │
+│           assert_eq!(result.lines.len(), 1);                                 │
+│           assert_eq!(result.lines[0].code, "ROOM");                          │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn                                                                     │
+│   unit_test_case_e1_extra_bed_should_be_zero_when_extra_bed_quantity_is_ze   │
+│   ro() {                                                                     │
+│           let mut input = make_case_e1_input();                              │
+│           input.occupancy.extra_beds = 0;                                    │
+│                                                                              │
+│           let result = run_case_e1_with_real_engine(&input);                 │
+│                                                                              │
+│           assert_eq!(result.room_amount, dec!(2000000));                     │
+│           assert_eq!(result.extra_bed_amount, dec!(0));                      │
+│           assert_eq!(result.subtotal, dec!(2000000));                        │
+│                                                                              │
+│           assert_eq!(result.lines.len(), 1);                                 │
+│           assert_eq!(result.lines[0].code, "ROOM");                          │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // File: src-tauri/src/pricing/tests/mod.rs                                │
+│   //                                                                         │
+│   // Nếu project đã có mod.rs cho test thì chỉ cần thêm dòng này.            │
+│                                                                              │
+│   mod case_e1_extra_bed;                                                     │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   # File: src-tauri/Cargo.toml                                               │
+│   #                                                                          │
+│   # Thêm nếu project chưa có                                                 │
+│                                                                              │
+│   [dev-dependencies]                                                         │
+│   rust_decimal = "1"                                                         │
+│   rust_decimal_macros = "1"                                                  │
+│   serde = { version = "1", features = ["derive"] }                           │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // GỢI Ý GẮN VÀO ENGINE THẬT                                               │
+│   //                                                                         │
+│   // Nếu project của bạn đang có cấu trúc kiểu:                              │
+│   //                                                                         │
+│   // src-tauri/src/pricing/                                                  │
+│   //   engine.rs                                                             │
+│   //   models.rs                                                             │
+│   //   tests/                                                                │
+│   //     mod.rs                                                              │
+│   //                                                                         │
+│   // thì làm như sau:                                                        │
+│   //                                                                         │
+│   // 1) Tạo file:                                                            │
+│   //    src-tauri/src/pricing/tests/case_e1_extra_bed.rs                     │
+│   //                                                                         │
+│   // 2) Dán toàn bộ nội dung file test đầu tiên vào.                         │
+│   //                                                                         │
+│   // 3) Mở:                                                                  │
+│   //    src-tauri/src/pricing/tests/mod.rs                                   │
+│   //    thêm:                                                                │
+│   //    mod case_e1_extra_bed;                                               │
+│   //                                                                         │
+│   // 4) Nếu đã có production engine:                                         │
+│   //    sửa hàm:                                                             │
+│   //    fn run_case_e1_with_real_engine(input: &RoomRateInput) ->            │
+│   PricingResult                                                              │
+│   //    để map input test -> request của engine thật.                        │
+│   //                                                                         │
+│   // 5) Chạy test:                                                           │
+│   //    cargo test case_e1_extra_bed -- --nocapture                          │
+│   //                                                                         │
+│   // 6) Nếu muốn đặt test inline trong engine.rs thì có thể copy riêng       │
+│   module:                                                                    │
+│   //    #[cfg(test)]                                                         │
+│   //    mod case_e1_extra_bed { ... }                                        │
+│   //                                                                         │
+│   // và bỏ file mod.rs riêng.                                                │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

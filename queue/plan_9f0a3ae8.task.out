@@ -1,0 +1,591 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Based on my research and understanding of hotel pricing systems             │
+│  (particularly Vietnamese hotel pricing like SkyHotel), I can now provide    │
+│  the implementation for compute_overnights(). This function calculates the   │
+│  number of overnight stays based on check-in/check-out times, with a         │
+│  configurable start_hour (the hour at which an "overnight" begins,           │
+│  typically 22:00 in Vietnamese hotels).                                      │
+│                                                                              │
+│  Implementation Code                                                         │
+│                                                                              │
+│                                                                              │
+│   // File: src-tauri/crates/pricing/src/overnights.rs                        │
+│                                                                              │
+│   use chrono::{NaiveDateTime, NaiveTime, Duration, Timelike};                │
+│   use serde::{Deserialize, Serialize};                                       │
+│                                                                              │
+│   /// Configuration for overnight calculation                                │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct OvernightConfig {                                               │
+│       /// The hour at which overnight period starts (e.g., 22 for 10 PM)     │
+│       pub start_hour: u32,                                                   │
+│       /// The hour at which overnight period ends (e.g., 6 for 6 AM next     │
+│   day)                                                                       │
+│       pub end_hour: u32,                                                     │
+│       /// Minimum minutes after start_hour to count as an overnight          │
+│       pub min_minutes: u32,                                                  │
+│   }                                                                          │
+│                                                                              │
+│   impl Default for OvernightConfig {                                         │
+│       fn default() -> Self {                                                 │
+│           Self {                                                             │
+│               start_hour: 22,                                                │
+│               end_hour: 6,                                                   │
+│               min_minutes: 0,                                                │
+│           }                                                                  │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Result of overnight computation                                        │
+│   #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]                 │
+│   pub struct OvernightResult {                                               │
+│       /// Number of full overnights                                          │
+│       pub count: u32,                                                        │
+│       /// Whether there's a partial overnight (early check-in or late        │
+│   check-out)                                                                 │
+│       pub has_partial: bool,                                                 │
+│       /// Minutes in partial overnight period                                │
+│       pub partial_minutes: u32,                                              │
+│       /// Detailed breakdown per night                                       │
+│       pub nights: Vec<NightDetail>,                                          │
+│   }                                                                          │
+│                                                                              │
+│   /// Detail of each overnight period                                        │
+│   #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]                 │
+│   pub struct NightDetail {                                                   │
+│       /// Start of this overnight period                                     │
+│       pub start: NaiveDateTime,                                              │
+│       /// End of this overnight period                                       │
+│       pub end: NaiveDateTime,                                                │
+│       /// Duration in minutes                                                │
+│       pub duration_minutes: u32,                                             │
+│       /// Whether this is a full overnight                                   │
+│       pub is_full: bool,                                                     │
+│   }                                                                          │
+│                                                                              │
+│   /// Compute the number of overnight stays between check-in and             │
+│   check-out.                                                                 │
+│   ///                                                                        │
+│   /// # Logic (SkyHotel VN style):                                           │
+│   /// - An "overnight" is defined as a stay that spans the `start_hour`      │
+│   boundary.                                                                  │
+│   /// - For example, with start_hour=22:                                     │
+│   ///   - Check-in 20:00, Check-out 08:00 next day => 1 overnight            │
+│   ///   - Check-in 23:00, Check-out 08:00 next day => 1 overnight            │
+│   ///   - Check-in 14:00, Check-out 18:00 same day => 0 overnights           │
+│   (daytime only)                                                             │
+│   ///   - Check-in 20:00 Day1, Check-out 08:00 Day3 => 2 overnights          │
+│   ///                                                                        │
+│   /// # Parameters                                                           │
+│   /// - `checkin`: Check-in datetime                                         │
+│   /// - `checkout`: Check-out datetime                                       │
+│   /// - `config`: Overnight configuration (start_hour, end_hour,             │
+│   min_minutes)                                                               │
+│   ///                                                                        │
+│   /// # Returns                                                              │
+│   /// - `OvernightResult` with count and breakdown                           │
+│   pub fn compute_overnights(                                                 │
+│       checkin: NaiveDateTime,                                                │
+│       checkout: NaiveDateTime,                                               │
+│       config: &OvernightConfig,                                              │
+│   ) -> OvernightResult {                                                     │
+│       // Validate: checkout must be after checkin                            │
+│       if checkout <= checkin {                                               │
+│           return OvernightResult {                                           │
+│               count: 0,                                                      │
+│               has_partial: false,                                            │
+│               partial_minutes: 0,                                            │
+│               nights: vec![],                                                │
+│           };                                                                 │
+│       }                                                                      │
+│                                                                              │
+│       let start_hour = config.start_hour;                                    │
+│       let end_hour = config.end_hour;                                        │
+│       let min_minutes = config.min_minutes;                                  │
+│                                                                              │
+│       let mut nights: Vec<NightDetail> = Vec::new();                         │
+│       let mut current = checkin;                                             │
+│                                                                              │
+│       // Iterate through each potential overnight boundary                   │
+│       loop {                                                                 │
+│           // Find the next overnight start boundary (start_hour on current   │
+│   or next day)                                                               │
+│           let overnight_start = find_next_overnight_start(current,           │
+│   start_hour);                                                               │
+│                                                                              │
+│           // If overnight start is at or after checkout, no more             │
+│   overnights                                                                 │
+│           if overnight_start >= checkout {                                   │
+│               break;                                                         │
+│           }                                                                  │
+│                                                                              │
+│           // Calculate overnight end (end_hour on the next day)              │
+│           let overnight_end = compute_overnight_end(overnight_start,         │
+│   end_hour);                                                                 │
+│                                                                              │
+│           // The actual start of the guest's overnight is max(checkin,       │
+│   overnight_start)                                                           │
+│           let actual_start = if checkin > overnight_start {                  │
+│               checkin                                                        │
+│           } else {                                                           │
+│               overnight_start                                                │
+│           };                                                                 │
+│                                                                              │
+│           // The actual end of the guest's overnight is min(checkout,        │
+│   overnight_end)                                                             │
+│           let actual_end = if checkout < overnight_end {                     │
+│               checkout                                                       │
+│           } else {                                                           │
+│               overnight_end                                                  │
+│           };                                                                 │
+│                                                                              │
+│           // Calculate duration                                              │
+│           if actual_end > actual_start {                                     │
+│               let duration = actual_end - actual_start;                      │
+│               let duration_minutes = duration.num_minutes() as u32;          │
+│                                                                              │
+│               // Full overnight = guest stayed through entire overnight      │
+│   period                                                                     │
+│               // (from start_hour to end_hour next day)                      │
+│               let full_overnight_minutes =                                   │
+│   compute_full_overnight_minutes(start_hour, end_hour);                      │
+│               let is_full = duration_minutes >= full_overnight_minutes;      │
+│                                                                              │
+│               // Only count if meets minimum minutes threshold               │
+│               if duration_minutes >= min_minutes {                           │
+│                   nights.push(NightDetail {                                  │
+│                       start: actual_start,                                   │
+│                       end: actual_end,                                       │
+│                       duration_minutes,                                      │
+│                       is_full,                                               │
+│                   });                                                        │
+│               }                                                              │
+│           }                                                                  │
+│                                                                              │
+│           // Move to next day (after overnight_end)                          │
+│           current = overnight_end;                                           │
+│                                                                              │
+│           // Safety: prevent infinite loop                                   │
+│           if current >= checkout {                                           │
+│               break;                                                         │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       // Count full overnights                                               │
+│       let full_count = nights.iter().filter(|n| n.is_full).count() as u32;   │
+│       let partial_nights: Vec<&NightDetail> = nights.iter().filter(|n|       │
+│   !n.is_full).collect();                                                     │
+│       let has_partial = !partial_nights.is_empty();                          │
+│       let partial_minutes = partial_nights.iter().map(|n|                    │
+│   n.duration_minutes).sum();                                                 │
+│                                                                              │
+│       // Total overnight count: each night that crosses start_hour           │
+│   boundary counts as 1                                                       │
+│       let count = nights.len() as u32;                                       │
+│                                                                              │
+│       OvernightResult {                                                      │
+│           count,                                                             │
+│           has_partial,                                                       │
+│           partial_minutes,                                                   │
+│           nights,                                                            │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Find the next overnight start boundary at or after `from` datetime     │
+│   fn find_next_overnight_start(from: NaiveDateTime, start_hour: u32) ->      │
+│   NaiveDateTime {                                                            │
+│       let today_start = from                                                 │
+│           .date()                                                            │
+│           .and_time(NaiveTime::from_hms_opt(start_hour, 0, 0).unwrap());     │
+│                                                                              │
+│       if from <= today_start {                                               │
+│           today_start                                                        │
+│       } else {                                                               │
+│           // Next day's start_hour                                           │
+│           (from.date() + Duration::days(1))                                  │
+│               .and_time(NaiveTime::from_hms_opt(start_hour, 0,               │
+│   0).unwrap())                                                               │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Compute the end of an overnight period (end_hour on the next day)      │
+│   fn compute_overnight_end(overnight_start: NaiveDateTime, end_hour: u32)    │
+│   -> NaiveDateTime {                                                         │
+│       // Overnight ends at end_hour the next day                             │
+│       (overnight_start.date() + Duration::days(1))                           │
+│           .and_time(NaiveTime::from_hms_opt(end_hour, 0, 0).unwrap())        │
+│   }                                                                          │
+│                                                                              │
+│   /// Calculate the full overnight duration in minutes                       │
+│   fn compute_full_overnight_minutes(start_hour: u32, end_hour: u32) -> u32   │
+│   {                                                                          │
+│       // Overnight spans from start_hour to end_hour next day                │
+│       // e.g., 22:00 -> 06:00 = 8 hours = 480 minutes                        │
+│       let hours = if end_hour > start_hour {                                 │
+│           // Same day (unusual config, e.g., 02:00 -> 10:00)                 │
+│           end_hour - start_hour                                              │
+│       } else {                                                               │
+│           // Next day (normal: e.g., 22 -> 6 = 24 - 22 + 6 = 8)              │
+│           (24 - start_hour) + end_hour                                       │
+│       };                                                                     │
+│       hours * 60                                                             │
+│   }                                                                          │
+│                                                                              │
+│   // ============================================================            │
+│   // Simplified API (matches task description: "tương tự nhưng               │
+│   start_hour")                                                               │
+│   // This is the direct counterpart to compute_hours() but for overnights    │
+│   // ============================================================            │
+│                                                                              │
+│   /// Simplified overnight computation — counts how many times the stay      │
+│   /// crosses the `start_hour` boundary.                                     │
+│   ///                                                                        │
+│   /// This is the "tương tự nhưng start_hour" version:                       │
+│   /// Similar logic to `compute_hours()` but counts overnight crossings      │
+│   /// instead of hourly blocks.                                              │
+│   ///                                                                        │
+│   /// # Example (start_hour = 22):                                           │
+│   /// - checkin=21:00 Day1, checkout=07:00 Day2 → 1 overnight                │
+│   /// - checkin=21:00 Day1, checkout=07:00 Day3 → 2 overnights               │
+│   /// - checkin=08:00 Day1, checkout=20:00 Day1 → 0 overnights               │
+│   pub fn compute_overnights_simple(                                          │
+│       checkin: NaiveDateTime,                                                │
+│       checkout: NaiveDateTime,                                               │
+│       start_hour: u32,                                                       │
+│   ) -> u32 {                                                                 │
+│       if checkout <= checkin {                                               │
+│           return 0;                                                          │
+│       }                                                                      │
+│                                                                              │
+│       let mut count: u32 = 0;                                                │
+│       let mut boundary = find_next_overnight_start(checkin, start_hour);     │
+│                                                                              │
+│       // Count each start_hour boundary that falls within [checkin,          │
+│   checkout)                                                                  │
+│       while boundary < checkout {                                            │
+│           count += 1;                                                        │
+│           boundary = boundary + Duration::days(1);                           │
+│       }                                                                      │
+│                                                                              │
+│       count                                                                  │
+│   }                                                                          │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod tests {                                                                │
+│       use super::*;                                                          │
+│       use chrono::NaiveDate;                                                 │
+│                                                                              │
+│       fn dt(year: i32, month: u32, day: u32, hour: u32, min: u32) ->         │
+│   NaiveDateTime {                                                            │
+│           NaiveDate::from_ymd_opt(year, month, day)                          │
+│               .unwrap()                                                      │
+│               .and_hms_opt(hour, min, 0)                                     │
+│               .unwrap()                                                      │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_single_overnight() {                                           │
+│           let checkin = dt(2025, 1, 15, 20, 0); // 8 PM                      │
+│           let checkout = dt(2025, 1, 16, 8, 0); // 8 AM next day             │
+│           let config = OvernightConfig::default(); // start_hour=22,         │
+│   end_hour=6                                                                 │
+│                                                                              │
+│           let result = compute_overnights(checkin, checkout, &config);       │
+│           assert_eq!(result.count, 1);                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_two_overnights() {                                             │
+│           let checkin = dt(2025, 1, 15, 20, 0);                              │
+│           let checkout = dt(2025, 1, 17, 8, 0); // 2 days later              │
+│           let config = OvernightConfig::default();                           │
+│                                                                              │
+│           let result = compute_overnights(checkin, checkout, &config);       │
+│           assert_eq!(result.count, 2);                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_no_overnight_daytime_only() {                                  │
+│           let checkin = dt(2025, 1, 15, 8, 0); // 8 AM                       │
+│           let checkout = dt(2025, 1, 15, 18, 0); // 6 PM same day            │
+│           let config = OvernightConfig::default();                           │
+│                                                                              │
+│           let result = compute_overnights(checkin, checkout, &config);       │
+│           assert_eq!(result.count, 0);                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_late_checkin_after_start_hour() {                              │
+│           let checkin = dt(2025, 1, 15, 23, 0); // 11 PM (after start_hour   │
+│   22)                                                                        │
+│           let checkout = dt(2025, 1, 16, 8, 0); // 8 AM next day             │
+│           let config = OvernightConfig::default();                           │
+│                                                                              │
+│           let result = compute_overnights(checkin, checkout, &config);       │
+│           assert_eq!(result.count, 1);                                       │
+│           assert!(result.has_partial); // partial because missed             │
+│   22:00-23:00                                                                │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_checkout_before_end_hour() {                                   │
+│           let checkin = dt(2025, 1, 15, 20, 0);                              │
+│           let checkout = dt(2025, 1, 16, 4, 0); // 4 AM (before end_hour     │
+│   6)                                                                         │
+│           let config = OvernightConfig::default();                           │
+│                                                                              │
+│           let result = compute_overnights(checkin, checkout, &config);       │
+│           assert_eq!(result.count, 1);                                       │
+│           assert!(result.has_partial);                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_checkout_equals_checkin() {                                    │
+│           let checkin = dt(2025, 1, 15, 20, 0);                              │
+│           let checkout = dt(2025, 1, 15, 20, 0);                             │
+│           let config = OvernightConfig::default();                           │
+│                                                                              │
+│           let result = compute_overnights(checkin, checkout, &config);       │
+│           assert_eq!(result.count, 0);                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_simple_api_single_night() {                                    │
+│           let checkin = dt(2025, 1, 15, 21, 0);                              │
+│           let checkout = dt(2025, 1, 16, 7, 0);                              │
+│           assert_eq!(compute_overnights_simple(checkin, checkout, 22), 1);   │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_simple_api_two_nights() {                                      │
+│           let checkin = dt(2025, 1, 15, 21, 0);                              │
+│           let checkout = dt(2025, 1, 17, 7, 0);                              │
+│           assert_eq!(compute_overnights_simple(checkin, checkout, 22), 2);   │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_simple_api_no_nights() {                                       │
+│           let checkin = dt(2025, 1, 15, 8, 0);                               │
+│           let checkout = dt(2025, 1, 15, 20, 0);                             │
+│           assert_eq!(compute_overnights_simple(checkin, checkout, 22), 0);   │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_simple_api_checkin_exactly_at_start() {                        │
+│           let checkin = dt(2025, 1, 15, 22, 0); // exactly at boundary       │
+│           let checkout = dt(2025, 1, 16, 7, 0);                              │
+│           // boundary at 22:00 is NOT < checkout? It IS < checkout           │
+│           // checkin=22:00, next boundary from 22:00 is 22:00 same day       │
+│   (since from <= today_start)                                                │
+│           // 22:00 < 07:00 next day? YES                                     │
+│           assert_eq!(compute_overnights_simple(checkin, checkout, 22), 1);   │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_custom_start_hour() {                                          │
+│           // Vietnamese budget hotel: overnight starts at 20:00              │
+│           let checkin = dt(2025, 1, 15, 19, 0);                              │
+│           let checkout = dt(2025, 1, 16, 6, 0);                              │
+│           let config = OvernightConfig {                                     │
+│               start_hour: 20,                                                │
+│               end_hour: 6,                                                   │
+│               min_minutes: 0,                                                │
+│           };                                                                 │
+│                                                                              │
+│           let result = compute_overnights(checkin, checkout, &config);       │
+│           assert_eq!(result.count, 1);                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_min_minutes_threshold() {                                      │
+│           // Check-in just before midnight, checkout 30 min later            │
+│           let checkin = dt(2025, 1, 15, 23, 30);                             │
+│           let checkout = dt(2025, 1, 16, 0, 30); // only 1 hour in           │
+│   overnight                                                                  │
+│           let config = OvernightConfig {                                     │
+│               start_hour: 22,                                                │
+│               end_hour: 6,                                                   │
+│               min_minutes: 120, // require at least 2 hours                  │
+│           };                                                                 │
+│                                                                              │
+│           let result = compute_overnights(checkin, checkout, &config);       │
+│           assert_eq!(result.count, 0); // doesn't meet minimum               │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // File: src-tauri/crates/pricing/src/lib.rs                               │
+│   // Add this module declaration to your lib.rs                              │
+│                                                                              │
+│   pub mod overnights;                                                        │
+│                                                                              │
+│   // Re-export for convenience                                               │
+│   pub use overnights::{                                                      │
+│       compute_overnights, compute_overnights_simple, NightDetail,            │
+│   OvernightConfig, OvernightResult,                                          │
+│   };                                                                         │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│   // File: src-tauri/crates/pricing/src/commands.rs                          │
+│   // Tauri command to expose to frontend                                     │
+│                                                                              │
+│   use crate::overnights::{compute_overnights, compute_overnights_simple,     │
+│   OvernightConfig, OvernightResult};                                         │
+│   use chrono::NaiveDateTime;                                                 │
+│   use tauri::command;                                                        │
+│                                                                              │
+│   #[command]                                                                 │
+│   pub fn cmd_compute_overnights(                                             │
+│       checkin: String,                                                       │
+│       checkout: String,                                                      │
+│       start_hour: Option<u32>,                                               │
+│       end_hour: Option<u32>,                                                 │
+│       min_minutes: Option<u32>,                                              │
+│   ) -> Result<OvernightResult, String> {                                     │
+│       let checkin_dt = NaiveDateTime::parse_from_str(&checkin,               │
+│   "%Y-%m-%dT%H:%M:%S")                                                       │
+│           .or_else(|_| NaiveDateTime::parse_from_str(&checkin, "%Y-%m-%d     │
+│   %H:%M:%S"))                                                                │
+│           .map_err(|e| format!("Invalid checkin datetime: {}", e))?;         │
+│                                                                              │
+│       let checkout_dt = NaiveDateTime::parse_from_str(&checkout,             │
+│   "%Y-%m-%dT%H:%M:%S")                                                       │
+│           .or_else(|_| NaiveDateTime::parse_from_str(&checkout, "%Y-%m-%d    │
+│   %H:%M:%S"))                                                                │
+│           .map_err(|e| format!("Invalid checkout datetime: {}", e))?;        │
+│                                                                              │
+│       let config = OvernightConfig {                                         │
+│           start_hour: start_hour.unwrap_or(22),                              │
+│           end_hour: end_hour.unwrap_or(6),                                   │
+│           min_minutes: min_minutes.unwrap_or(0),                             │
+│       };                                                                     │
+│                                                                              │
+│       Ok(compute_overnights(checkin_dt, checkout_dt, &config))               │
+│   }                                                                          │
+│                                                                              │
+│   #[command]                                                                 │
+│   pub fn cmd_compute_overnights_simple(                                      │
+│       checkin: String,                                                       │
+│       checkout: String,                                                      │
+│       start_hour: Option<u32>,                                               │
+│   ) -> Result<u32, String> {                                                 │
+│       let checkin_dt = NaiveDateTime::parse_from_str(&checkin,               │
+│   "%Y-%m-%dT%H:%M:%S")                                                       │
+│           .or_else(|_| NaiveDateTime::parse_from_str(&checkin, "%Y-%m-%d     │
+│   %H:%M:%S"))                                                                │
+│           .map_err(|e| format!("Invalid checkin datetime: {}", e))?;         │
+│                                                                              │
+│       let checkout_dt = NaiveDateTime::parse_from_str(&checkout,             │
+│   "%Y-%m-%dT%H:%M:%S")                                                       │
+│           .or_else(|_| NaiveDateTime::parse_from_str(&checkout, "%Y-%m-%d    │
+│   %H:%M:%S"))                                                                │
+│           .map_err(|e| format!("Invalid checkout datetime: {}", e))?;        │
+│                                                                              │
+│       Ok(compute_overnights_simple(                                          │
+│           checkin_dt,                                                        │
+│           checkout_dt,                                                       │
+│           start_hour.unwrap_or(22),                                          │
+│       ))                                                                     │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│  1. Tạo file module                                                          │
+│                                                                              │
+│                                                                              │
+│   src-tauri/crates/pricing/src/overnights.rs   ← Code chính (file đầu tiên   │
+│   ở trên)                                                                    │
+│                                                                              │
+│                                                                              │
+│  2. Đăng ký module trong lib.rs                                              │
+│                                                                              │
+│  Mở src-tauri/crates/pricing/src/lib.rs và thêm:                             │
+│                                                                              │
+│                                                                              │
+│   pub mod overnights;                                                        │
+│   pub use overnights::*;                                                     │
+│                                                                              │
+│                                                                              │
+│  3. Đăng ký Tauri commands                                                   │
+│                                                                              │
+│  Trong src-tauri/src/main.rs (hoặc lib.rs tùy cấu trúc Tauri 2):             │
+│                                                                              │
+│                                                                              │
+│   use pricing::commands::{cmd_compute_overnights,                            │
+│   cmd_compute_overnights_simple};                                            │
+│                                                                              │
+│   // Trong builder:                                                          │
+│   tauri::Builder::default()                                                  │
+│       .invoke_handler(tauri::generate_handler![                              │
+│           // ... other commands                                              │
+│           cmd_compute_overnights,                                            │
+│           cmd_compute_overnights_simple,                                     │
+│       ])                                                                     │
+│                                                                              │
+│                                                                              │
+│  4. Dependencies (Cargo.toml của pricing crate)                              │
+│                                                                              │
+│                                                                              │
+│   [dependencies]                                                             │
+│   chrono = { version = "0.4", features = ["serde"] }                         │
+│   serde = { version = "1", features = ["derive"] }                           │
+│                                                                              │
+│                                                                              │
+│  5. Gọi từ Frontend (React/TypeScript)                                       │
+│                                                                              │
+│                                                                              │
+│   import { invoke } from '@tauri-apps/api/core';                             │
+│                                                                              │
+│   // Detailed computation                                                    │
+│   const result = await invoke('cmd_compute_overnights', {                    │
+│     checkin: '2025-01-15T20:00:00',                                          │
+│     checkout: '2025-01-17T08:00:00',                                         │
+│     startHour: 22,                                                           │
+│     endHour: 6,                                                              │
+│     minMinutes: 0,                                                           │
+│   });                                                                        │
+│   // result = { count: 2, has_partial: false, partial_minutes: 0, nights:    │
+│   [...] }                                                                    │
+│                                                                              │
+│   // Simple count                                                            │
+│   const nights = await invoke('cmd_compute_overnights_simple', {             │
+│     checkin: '2025-01-15T20:00:00',                                          │
+│     checkout: '2025-01-17T08:00:00',                                         │
+│     startHour: 22,                                                           │
+│   });                                                                        │
+│   // nights = 2                                                              │
+│                                                                              │
+│                                                                              │
+│  6. Chạy test                                                                │
+│                                                                              │
+│                                                                              │
+│   cd src-tauri/crates/pricing                                                │
+│   cargo test overnights -- --nocapture                                       │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Logic nghiệp vụ tóm tắt                                                     │
+│                                                                              │
+│  Hàm compute_overnights() hoạt động tương tự compute_hours() nhưng thay vì   │
+│  đếm block giờ, nó đếm số lần lưu trú vượt qua mốc start_hour (mặc định      │
+│  22:00). Đây là cách tính phổ biến của khách sạn Việt Nam (SkyHotel style):  │
+│                                                                              │
+│                                                                              │
+│   Checkin   Checkout  start_hour=22      Kết quả                             │
+│   ──────────────────────────────────────────────────────                     │
+│   20:00 D1  08:00 D2  Qua mốc 22h 1 lần  1 đêm                               │
+│   20:00 D1  08:00 D3  Qua mốc 22h 2 lần  2 đêm                               │
+│   08:00 D1  18:00 D1  Không qua 22h      0 đêm                               │
+│   23:00 D1  05:00 D2  Đã qua 22h         1 đêm (partial)                     │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

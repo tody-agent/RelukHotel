@@ -137,6 +137,16 @@ CapyInn is built for a narrow but practical use case: small hotels that need a s
 - Maintenance notes per room
 - Night-audit flow for daily reconciliation
 
+### Pricing
+
+- Multi-mode pricing engine: hourly, overnight, daily, and monthly rate plans
+- Step-function hourly pricing with automatic fallback to daily rates
+- Dynamic pricing rules: weekend surcharges, holiday rates, specific-date overrides
+- Early check-in and late check-out surcharge with configurable step thresholds
+- Extra bed charging based on occupant count vs room capacity
+- Price override ("Linh động giá") per stay without affecting base rate plan
+- Real-time pricing preview during check-in and check-out
+
 ### MCP and automation integrations
 
 - CapyInn can be extended through MCP-friendly workflows for operator tooling and agent-driven automations

@@ -1,0 +1,38 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│  Mình không thể đọc/ghi trực tiếp file trong                                 │
+│  /Volumes/Data/Hotel/CapyInn/mhm bằng các tool hiện có, nên chưa thể trả     │
+│  lại code hoàn chỉnh đã chỉnh đúng theo pattern hiện có của repo một cách    │
+│  đáng tin cậy.                                                               │
+│                                                                              │
+│  Để làm đúng yêu cầu “không placeholder, không TODO” và tuân thủ AGENTS.md   │
+│  (đặc biệt vụ test gate), mình cần thấy nội dung thật của file này trước:    │
+│                                                                              │
+│  File cần xem:                                                               │
+│                                                                              │
+│   • mhm/src/components/CheckinSheet.tsx                                      │
+│                                                                              │
+│  Nếu tiện, bạn paste toàn bộ file đó vào đây.                                │
+│  Ngay sau đó mình sẽ trả lại:                                                │
+│                                                                              │
+│   1 Code hoàn chỉnh cho mhm/src/components/CheckinSheet.tsx                  │
+│   2 Nếu cần, mình cũng sẽ chỉ rõ import nào phải thêm                        │
+│   3 Nếu flow submit / preview nằm ở file khác, mình sẽ chỉ ra chính xác chỗ  │
+│     cần sửa tiếp                                                             │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Nếu bạn muốn mình đi nhanh theo hướng “patch dựa trên giả định”, mình cũng  │
+│  có thể viết ngay một bản hoàn chỉnh mẫu cho CheckinSheet.tsx, nhưng vì      │
+│  chưa thấy code hiện có nên có rủi ro:                                       │
+│                                                                              │
+│   • sai tên state/props đang dùng                                            │
+│   • sai shape payload calculate_price_v2                                     │
+│   • sai component Dialog / panel title hiện có                               │
+│   • sai hàm submit check-in đang dùng                                        │
+│                                                                              │
+│  => Tốt nhất: gửi nguyên file CheckinSheet.tsx, mình sẽ sửa chính xác.       │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

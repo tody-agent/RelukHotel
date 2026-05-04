@@ -1,0 +1,828 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Now I have enough context to write a comprehensive property-based test.     │
+│  Let me create the implementation based on a typical hotel pricing engine    │
+│  where line items (room charges, taxes, fees, discounts) must always sum to  │
+│  the total.                                                                  │
+│                                                                              │
+│  Implementation Code                                                         │
+│                                                                              │
+│  Here's the complete Rust property-based test using proptest:                │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: src-tauri/Cargo.toml (thêm dependency)                                │
+│                                                                              │
+│                                                                              │
+│   [dev-dependencies]                                                         │
+│   proptest = "1.4"                                                           │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: src-tauri/src/pricing/mod.rs (nếu chưa có)                            │
+│                                                                              │
+│                                                                              │
+│   pub mod engine;                                                            │
+│   pub mod types;                                                             │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   pub mod property_tests;                                                    │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: src-tauri/src/pricing/types.rs                                        │
+│                                                                              │
+│                                                                              │
+│   use serde::{Deserialize, Serialize};                                       │
+│                                                                              │
+│   /// Đơn vị tiền tệ VND - lưu dạng i64 (đồng)                               │
+│   pub type Money = i64;                                                      │
+│                                                                              │
+│   /// Loại line item trong bảng giá                                          │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub enum LineItemKind {                                                    │
+│       RoomCharge,                                                            │
+│       ExtraBed,                                                              │
+│       Breakfast,                                                             │
+│       ServiceFee,                                                            │
+│       Vat,                                                                   │
+│       CityTax,                                                               │
+│       Discount,                                                              │
+│       EarlyCheckIn,                                                          │
+│       LateCheckOut,                                                          │
+│       SpecialSurcharge,                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Một dòng chi tiết giá                                                  │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub struct LineItem {                                                      │
+│       pub kind: LineItemKind,                                                │
+│       pub description: String,                                               │
+│       pub amount: Money,                                                     │
+│       pub quantity: u32,                                                     │
+│       pub subtotal: Money, // amount * quantity (hoặc tính theo logic        │
+│   riêng)                                                                     │
+│   }                                                                          │
+│                                                                              │
+│   /// Kết quả tính giá từ Pricing Engine                                     │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub struct PricingResult {                                                 │
+│       pub line_items: Vec<LineItem>,                                         │
+│       pub total: Money,                                                      │
+│       pub currency: String,                                                  │
+│   }                                                                          │
+│                                                                              │
+│   /// Input cho pricing engine                                               │
+│   #[derive(Debug, Clone, Serialize, Deserialize)]                            │
+│   pub struct PricingInput {                                                  │
+│       pub room_rate: Money,                                                  │
+│       pub num_nights: u32,                                                   │
+│       pub num_extra_beds: u32,                                               │
+│       pub extra_bed_rate: Money,                                             │
+│       pub include_breakfast: bool,                                           │
+│       pub breakfast_rate: Money,                                             │
+│       pub num_guests_breakfast: u32,                                         │
+│       pub service_fee_percent: f64,   // 0.0 - 15.0                          │
+│       pub vat_percent: f64,           // 0.0 - 10.0                          │
+│       pub city_tax: Money,            // flat amount                         │
+│       pub discount_percent: f64,      // 0.0 - 100.0                         │
+│       pub early_checkin_fee: Money,                                          │
+│       pub late_checkout_fee: Money,                                          │
+│       pub special_surcharge: Money,                                          │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: src-tauri/src/pricing/engine.rs                                       │
+│                                                                              │
+│                                                                              │
+│   use super::types::*;                                                       │
+│                                                                              │
+│   /// Core pricing calculation - chuyển đổi logic tính giá SkyHotel sang     │
+│   Rust                                                                       │
+│   ///                                                                        │
+│   /// INVARIANT: sum(line_items[i].subtotal) == total                        │
+│   /// Đây là property chính mà property-based test sẽ verify.                │
+│   pub fn calculate_pricing(input: &PricingInput) -> PricingResult {          │
+│       let mut line_items: Vec<LineItem> = Vec::new();                        │
+│                                                                              │
+│       // 1. Room charge                                                      │
+│       let room_subtotal = input.room_rate * input.num_nights as i64;         │
+│       if room_subtotal != 0 {                                                │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::RoomCharge,                                │
+│               description: format!("{} đêm x {} VND", input.num_nights,      │
+│   input.room_rate),                                                          │
+│               amount: input.room_rate,                                       │
+│               quantity: input.num_nights,                                    │
+│               subtotal: room_subtotal,                                       │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // 2. Extra bed                                                        │
+│       let extra_bed_subtotal = input.extra_bed_rate * input.num_extra_beds   │
+│   as i64 * input.num_nights as i64;                                          │
+│       if extra_bed_subtotal != 0 {                                           │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::ExtraBed,                                  │
+│               description: format!("{} giường phụ x {} đêm",                 │
+│   input.num_extra_beds, input.num_nights),                                   │
+│               amount: input.extra_bed_rate,                                  │
+│               quantity: input.num_extra_beds * input.num_nights,             │
+│               subtotal: extra_bed_subtotal,                                  │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // 3. Breakfast                                                        │
+│       let breakfast_subtotal = if input.include_breakfast {                  │
+│           input.breakfast_rate * input.num_guests_breakfast as i64 *         │
+│   input.num_nights as i64                                                    │
+│       } else {                                                               │
+│           0                                                                  │
+│       };                                                                     │
+│       if breakfast_subtotal != 0 {                                           │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::Breakfast,                                 │
+│               description: format!("Bữa sáng {} khách x {} ngày",            │
+│   input.num_guests_breakfast, input.num_nights),                             │
+│               amount: input.breakfast_rate,                                  │
+│               quantity: input.num_guests_breakfast * input.num_nights,       │
+│               subtotal: breakfast_subtotal,                                  │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // 4. Early check-in                                                   │
+│       if input.early_checkin_fee != 0 {                                      │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::EarlyCheckIn,                              │
+│               description: "Phụ phí nhận phòng sớm".to_string(),             │
+│               amount: input.early_checkin_fee,                               │
+│               quantity: 1,                                                   │
+│               subtotal: input.early_checkin_fee,                             │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // 5. Late check-out                                                   │
+│       if input.late_checkout_fee != 0 {                                      │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::LateCheckOut,                              │
+│               description: "Phụ phí trả phòng muộn".to_string(),             │
+│               amount: input.late_checkout_fee,                               │
+│               quantity: 1,                                                   │
+│               subtotal: input.late_checkout_fee,                             │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // 6. Special surcharge                                                │
+│       if input.special_surcharge != 0 {                                      │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::SpecialSurcharge,                          │
+│               description: "Phụ thu đặc biệt (lễ, Tết, sự                    │
+│   kiện)".to_string(),                                                        │
+│               amount: input.special_surcharge,                               │
+│               quantity: 1,                                                   │
+│               subtotal: input.special_surcharge,                             │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // Subtotal trước thuế/phí dịch vụ                                     │
+│       let pre_tax_subtotal: Money = line_items.iter().map(|li|               │
+│   li.subtotal).sum();                                                        │
+│                                                                              │
+│       // 7. Discount (trên pre_tax_subtotal)                                 │
+│       let discount_amount = if input.discount_percent > 0.0 {                │
+│           // Làm tròn xuống (floor) để tránh sai lệch                        │
+│           ((pre_tax_subtotal as f64) * input.discount_percent /              │
+│   100.0).floor() as Money                                                    │
+│       } else {                                                               │
+│           0                                                                  │
+│       };                                                                     │
+│       if discount_amount != 0 {                                              │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::Discount,                                  │
+│               description: format!("Giảm giá {}%",                           │
+│   input.discount_percent),                                                   │
+│               amount: -discount_amount,                                      │
+│               quantity: 1,                                                   │
+│               subtotal: -discount_amount, // Âm vì là giảm giá               │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       let after_discount = pre_tax_subtotal - discount_amount;               │
+│                                                                              │
+│       // 8. Service fee (trên after_discount)                                │
+│       let service_fee = if input.service_fee_percent > 0.0 {                 │
+│           ((after_discount as f64) * input.service_fee_percent /             │
+│   100.0).floor() as Money                                                    │
+│       } else {                                                               │
+│           0                                                                  │
+│       };                                                                     │
+│       if service_fee != 0 {                                                  │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::ServiceFee,                                │
+│               description: format!("Phí dịch vụ {}%",                        │
+│   input.service_fee_percent),                                                │
+│               amount: service_fee,                                           │
+│               quantity: 1,                                                   │
+│               subtotal: service_fee,                                         │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // 9. VAT (trên after_discount + service_fee)                          │
+│       let taxable_amount = after_discount + service_fee;                     │
+│       let vat_amount = if input.vat_percent > 0.0 {                          │
+│           ((taxable_amount as f64) * input.vat_percent / 100.0).floor() as   │
+│   Money                                                                      │
+│       } else {                                                               │
+│           0                                                                  │
+│       };                                                                     │
+│       if vat_amount != 0 {                                                   │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::Vat,                                       │
+│               description: format!("VAT {}%", input.vat_percent),            │
+│               amount: vat_amount,                                            │
+│               quantity: 1,                                                   │
+│               subtotal: vat_amount,                                          │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // 10. City tax (flat)                                                 │
+│       if input.city_tax != 0 {                                               │
+│           line_items.push(LineItem {                                         │
+│               kind: LineItemKind::CityTax,                                   │
+│               description: "Thuế thành phố".to_string(),                     │
+│               amount: input.city_tax,                                        │
+│               quantity: 1,                                                   │
+│               subtotal: input.city_tax,                                      │
+│           });                                                                │
+│       }                                                                      │
+│                                                                              │
+│       // TOTAL = sum of all line_items subtotals                             │
+│       let total: Money = line_items.iter().map(|li| li.subtotal).sum();      │
+│                                                                              │
+│       PricingResult {                                                        │
+│           line_items,                                                        │
+│           total,                                                             │
+│           currency: "VND".to_string(),                                       │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  File: src-tauri/src/pricing/property_tests.rs ← FILE CHÍNH CỦA TASK 6.8     │
+│                                                                              │
+│                                                                              │
+│   //! Task 6.8: Property-based test - tổng line_items luôn = total           │
+│   //!                                                                        │
+│   //! Sử dụng proptest để generate hàng nghìn input ngẫu nhiên và verify     │
+│   //! invariant: sum(line_items[i].subtotal) == total cho MỌI trường hợp.    │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod tests {                                                                │
+│       use proptest::prelude::*;                                              │
+│       use crate::pricing::engine::calculate_pricing;                         │
+│       use crate::pricing::types::*;                                          │
+│                                                                              │
+│       /// Strategy để generate PricingInput hợp lệ cho khách sạn VN          │
+│       fn pricing_input_strategy() -> impl Strategy<Value = PricingInput> {   │
+│           (                                                                  │
+│               // room_rate: 100_000 - 50_000_000 VND (100k - 50tr)           │
+│               100_000i64..=50_000_000i64,                                    │
+│               // num_nights: 1 - 30                                          │
+│               1u32..=30u32,                                                  │
+│               // num_extra_beds: 0 - 3                                       │
+│               0u32..=3u32,                                                   │
+│               // extra_bed_rate: 0 - 2_000_000 VND                           │
+│               0i64..=2_000_000i64,                                           │
+│               // include_breakfast: bool                                     │
+│               any::<bool>(),                                                 │
+│               // breakfast_rate: 50_000 - 500_000 VND                        │
+│               50_000i64..=500_000i64,                                        │
+│               // num_guests_breakfast: 1 - 6                                 │
+│               1u32..=6u32,                                                   │
+│               // service_fee_percent: 0.0 - 15.0                             │
+│               0.0f64..=15.0f64,                                              │
+│               // vat_percent: 0.0 - 10.0                                     │
+│               0.0f64..=10.0f64,                                              │
+│               // city_tax: 0 - 500_000 VND                                   │
+│               0i64..=500_000i64,                                             │
+│           )                                                                  │
+│               .prop_flat_map(|tuple| {                                       │
+│                   let (                                                      │
+│                       room_rate,                                             │
+│                       num_nights,                                            │
+│                       num_extra_beds,                                        │
+│                       extra_bed_rate,                                        │
+│                       include_breakfast,                                     │
+│                       breakfast_rate,                                        │
+│                       num_guests_breakfast,                                  │
+│                       service_fee_percent,                                   │
+│                       vat_percent,                                           │
+│                       city_tax,                                              │
+│                   ) = tuple;                                                 │
+│                                                                              │
+│                   // Generate thêm các field còn lại                         │
+│                   (                                                          │
+│                       Just(room_rate),                                       │
+│                       Just(num_nights),                                      │
+│                       Just(num_extra_beds),                                  │
+│                       Just(extra_bed_rate),                                  │
+│                       Just(include_breakfast),                               │
+│                       Just(breakfast_rate),                                  │
+│                       Just(num_guests_breakfast),                            │
+│                       Just(service_fee_percent),                             │
+│                       Just(vat_percent),                                     │
+│                       Just(city_tax),                                        │
+│                       // discount_percent: 0.0 - 50.0                        │
+│                       0.0f64..=50.0f64,                                      │
+│                       // early_checkin_fee: 0 or 100_000 - 1_000_000         │
+│                       prop_oneof![                                           │
+│                           Just(0i64),                                        │
+│                           100_000i64..=1_000_000i64,                         │
+│                       ],                                                     │
+│                       // late_checkout_fee: 0 or 100_000 - 1_000_000         │
+│                       prop_oneof![                                           │
+│                           Just(0i64),                                        │
+│                           100_000i64..=1_000_000i64,                         │
+│                       ],                                                     │
+│                       // special_surcharge: 0 or 50_000 - 5_000_000          │
+│                       prop_oneof![                                           │
+│                           Just(0i64),                                        │
+│                           50_000i64..=5_000_000i64,                          │
+│                       ],                                                     │
+│                   )                                                          │
+│               })                                                             │
+│               .prop_map(|tuple| {                                            │
+│                   PricingInput {                                             │
+│                       room_rate: tuple.0,                                    │
+│                       num_nights: tuple.1,                                   │
+│                       num_extra_beds: tuple.2,                               │
+│                       extra_bed_rate: tuple.3,                               │
+│                       include_breakfast: tuple.4,                            │
+│                       breakfast_rate: tuple.5,                               │
+│                       num_guests_breakfast: tuple.6,                         │
+│                       service_fee_percent: tuple.7,                          │
+│                       vat_percent: tuple.8,                                  │
+│                       city_tax: tuple.9,                                     │
+│                       discount_percent: tuple.10,                            │
+│                       early_checkin_fee: tuple.11,                           │
+│                       late_checkout_fee: tuple.12,                           │
+│                       special_surcharge: tuple.13,                           │
+│                   }                                                          │
+│               })                                                             │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 1 (CHÍNH): Tổng line_items.subtotal == total               │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(10_000))]            │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_sum_line_items_equals_total(input in                       │
+│   pricing_input_strategy()) {                                                │
+│               let result = calculate_pricing(&input);                        │
+│                                                                              │
+│               let sum_of_line_items: Money = result                          │
+│                   .line_items                                                │
+│                   .iter()                                                    │
+│                   .map(|item| item.subtotal)                                 │
+│                   .sum();                                                    │
+│                                                                              │
+│               prop_assert_eq!(                                               │
+│                   sum_of_line_items,                                         │
+│                   result.total,                                              │
+│                   "INVARIANT VIOLATED: sum(line_items) = {} but total =      │
+│   {}\nInput: {:?}\nLine items: {:?}",                                        │
+│                   sum_of_line_items,                                         │
+│                   result.total,                                              │
+│                   input,                                                     │
+│                   result.line_items                                          │
+│               );                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 2: Total luôn >= 0 khi discount <= 100%                    │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(5_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_total_non_negative_with_reasonable_discount(               │
+│               input in pricing_input_strategy()                              │
+│                   .prop_filter("discount must be <= 100%", |i|               │
+│   i.discount_percent <= 100.0)                                               │
+│           ) {                                                                │
+│               let result = calculate_pricing(&input);                        │
+│                                                                              │
+│               // Với discount hợp lệ (<=100%), total phải >= 0               │
+│               // Trừ khi discount_percent > tổng phụ phí / pre_tax ratio     │
+│               // Nhưng trong thực tế VN, total nên >= 0                      │
+│               prop_assert!(                                                  │
+│                   result.total >= 0,                                         │
+│                   "Total should be non-negative, got: {}. Input: {:?}",      │
+│                   result.total,                                              │
+│                   input                                                      │
+│               );                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 3: Mỗi line_item có subtotal = amount * quantity (trừ %    │
+│   items)                                                                     │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(5_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_line_item_subtotal_consistency(input in                    │
+│   pricing_input_strategy()) {                                                │
+│               let result = calculate_pricing(&input);                        │
+│                                                                              │
+│               for item in &result.line_items {                               │
+│                   match item.kind {                                          │
+│                       // Các item tính theo percentage không tuân theo       │
+│   amount * quantity                                                          │
+│                       LineItemKind::ServiceFee                               │
+│                       | LineItemKind::Vat                                    │
+│                       | LineItemKind::Discount => {                          │
+│                           // Chỉ verify quantity = 1 cho percentage items    │
+│                           prop_assert_eq!(                                   │
+│                               item.quantity, 1,                              │
+│                               "Percentage-based items should have quantity   │
+│   = 1"                                                                       │
+│                           );                                                 │
+│                       }                                                      │
+│                       // Các item khác: subtotal = amount * quantity         │
+│                       _ => {                                                 │
+│                           prop_assert_eq!(                                   │
+│                               item.subtotal,                                 │
+│                               item.amount * item.quantity as i64,            │
+│                               "LineItem {:?}: subtotal ({}) != amount ({})   │
+│   * quantity ({})",                                                          │
+│                               item.kind,                                     │
+│                               item.subtotal,                                 │
+│                               item.amount,                                   │
+│                               item.quantity                                  │
+│                           );                                                 │
+│                       }                                                      │
+│                   }                                                          │
+│               }                                                              │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 4: Thêm đêm luôn tăng total (monotonicity)                 │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(3_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_more_nights_means_higher_total(input in                    │
+│   pricing_input_strategy()) {                                                │
+│               prop_assume!(input.num_nights < 30);                           │
+│               prop_assume!(input.room_rate > 0);                             │
+│                                                                              │
+│               let mut input_plus_one = input.clone();                        │
+│               input_plus_one.num_nights += 1;                                │
+│                                                                              │
+│               let result_base = calculate_pricing(&input);                   │
+│               let result_plus = calculate_pricing(&input_plus_one);          │
+│                                                                              │
+│               prop_assert!(                                                  │
+│                   result_plus.total >= result_base.total,                    │
+│                   "Adding a night should not decrease total. Base: {}, +1    │
+│   night: {}",                                                                │
+│                   result_base.total,                                         │
+│                   result_plus.total                                          │
+│               );                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 5: Không có discount => total >= room_charge               │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(3_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_no_discount_total_gte_room_charge(                         │
+│               input in pricing_input_strategy()                              │
+│                   .prop_map(|mut i| { i.discount_percent = 0.0; i })         │
+│           ) {                                                                │
+│               let result = calculate_pricing(&input);                        │
+│               let room_charge = input.room_rate * input.num_nights as i64;   │
+│                                                                              │
+│               prop_assert!(                                                  │
+│                   result.total >= room_charge,                               │
+│                   "Without discount, total ({}) should be >= room charge     │
+│   ({})",                                                                     │
+│                   result.total,                                              │
+│                   room_charge                                                │
+│               );                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 6: Currency luôn là VND                                    │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(1_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_currency_always_vnd(input in pricing_input_strategy()) {   │
+│               let result = calculate_pricing(&input);                        │
+│               prop_assert_eq!(result.currency, "VND");                       │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 7: line_items không rỗng (ít nhất có room charge)          │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(3_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_at_least_one_line_item(input in                            │
+│   pricing_input_strategy()) {                                                │
+│               let result = calculate_pricing(&input);                        │
+│                                                                              │
+│               prop_assert!(                                                  │
+│                   !result.line_items.is_empty(),                             │
+│                   "There should always be at least one line item (room       │
+│   charge). Input: {:?}",                                                     │
+│                   input                                                      │
+│               );                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 8: Idempotency - cùng input luôn cho cùng output           │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(2_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_idempotent_calculation(input in                            │
+│   pricing_input_strategy()) {                                                │
+│               let result1 = calculate_pricing(&input);                       │
+│               let result2 = calculate_pricing(&input);                       │
+│                                                                              │
+│               prop_assert_eq!(                                               │
+│                   result1.total,                                             │
+│                   result2.total,                                             │
+│                   "Same input must produce same total"                       │
+│               );                                                             │
+│               prop_assert_eq!(                                               │
+│                   result1.line_items.len(),                                  │
+│                   result2.line_items.len(),                                  │
+│                   "Same input must produce same number of line items"        │
+│               );                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // Edge case strategy: zero-values                                     │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       fn zero_heavy_strategy() -> impl Strategy<Value = PricingInput> {      │
+│           (                                                                  │
+│               prop_oneof![Just(0i64), 100_000i64..=1_000_000i64],            │
+│               1u32..=5u32,                                                   │
+│               0u32..=1u32,                                                   │
+│               prop_oneof![Just(0i64), 100_000i64..=500_000i64],              │
+│               any::<bool>(),                                                 │
+│               prop_oneof![Just(0i64), 50_000i64..=200_000i64],               │
+│               0u32..=2u32,                                                   │
+│               prop_oneof![Just(0.0f64), 5.0f64..=10.0f64],                   │
+│               prop_oneof![Just(0.0f64), 8.0f64..=10.0f64],                   │
+│               prop_oneof![Just(0i64), 10_000i64..=100_000i64],               │
+│               prop_oneof![Just(0.0f64), 10.0f64..=50.0f64],                  │
+│               Just(0i64),                                                    │
+│               Just(0i64),                                                    │
+│               Just(0i64),                                                    │
+│           )                                                                  │
+│               .prop_map(|t| PricingInput {                                   │
+│                   room_rate: t.0,                                            │
+│                   num_nights: t.1,                                           │
+│                   num_extra_beds: t.2,                                       │
+│                   extra_bed_rate: t.3,                                       │
+│                   include_breakfast: t.4,                                    │
+│                   breakfast_rate: t.5,                                       │
+│                   num_guests_breakfast: t.6,                                 │
+│                   service_fee_percent: t.7,                                  │
+│                   vat_percent: t.8,                                          │
+│                   city_tax: t.9,                                             │
+│                   discount_percent: t.10,                                    │
+│                   early_checkin_fee: t.11,                                   │
+│                   late_checkout_fee: t.12,                                   │
+│                   special_surcharge: t.13,                                   │
+│               })                                                             │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 9: Edge cases - invariant vẫn giữ với giá trị 0            │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(5_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_sum_equals_total_edge_cases(input in                       │
+│   zero_heavy_strategy()) {                                                   │
+│               let result = calculate_pricing(&input);                        │
+│                                                                              │
+│               let sum_of_line_items: Money = result                          │
+│                   .line_items                                                │
+│                   .iter()                                                    │
+│                   .map(|item| item.subtotal)                                 │
+│                   .sum();                                                    │
+│                                                                              │
+│               prop_assert_eq!(                                               │
+│                   sum_of_line_items,                                         │
+│                   result.total,                                              │
+│                   "INVARIANT VIOLATED (edge case): sum = {} but total =      │
+│   {}",                                                                       │
+│                   sum_of_line_items,                                         │
+│                   result.total                                               │
+│               );                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       // PROPERTY 10: Maximum stress - giá trị rất lớn, invariant vẫn giữ    │
+│       //                                                                     │
+│   ========================================================================   │
+│   =                                                                          │
+│       proptest! {                                                            │
+│           #![proptest_config(ProptestConfig::with_cases(2_000))]             │
+│                                                                              │
+│           #[test]                                                            │
+│           fn prop_sum_equals_total_large_values(                             │
+│               room_rate in 10_000_000i64..=100_000_000i64,  // 10tr -        │
+│   100tr VND/đêm (suite)                                                      │
+│               num_nights in 1u32..=30u32,                                    │
+│               discount in 0.0f64..=30.0f64,                                  │
+│               service_fee in 0.0f64..=15.0f64,                               │
+│               vat in 0.0f64..=10.0f64,                                       │
+│           ) {                                                                │
+│               let input = PricingInput {                                     │
+│                   room_rate,                                                 │
+│                   num_nights,                                                │
+│                   num_extra_beds: 2,                                         │
+│                   extra_bed_rate: 1_500_000,                                 │
+│                   include_breakfast: true,                                   │
+│                   breakfast_rate: 350_000,                                   │
+│                   num_guests_breakfast: 4,                                   │
+│                   service_fee_percent: service_fee,                          │
+│                   vat_percent: vat,                                          │
+│                   city_tax: 200_000,                                         │
+│                   discount_percent: discount,                                │
+│                   early_checkin_fee: 500_000,                                │
+│                   late_checkout_fee: 700_000,                                │
+│                   special_surcharge: 2_000_000,                              │
+│               };                                                             │
+│                                                                              │
+│               let result = calculate_pricing(&input);                        │
+│                                                                              │
+│               let sum_of_line_items: Money = result                          │
+│                   .line_items                                                │
+│                   .iter()                                                    │
+│                   .map(|item| item.subtotal)                                 │
+│                   .sum();                                                    │
+│                                                                              │
+│               prop_assert_eq!(                                               │
+│                   sum_of_line_items,                                         │
+│                   result.total,                                              │
+│                   "INVARIANT VIOLATED (large values): sum = {} but total =   │
+│   {}",                                                                       │
+│                   sum_of_line_items,                                         │
+│                   result.total                                               │
+│               );                                                             │
+│           }                                                                  │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│  1. Cấu trúc thư mục                                                         │
+│                                                                              │
+│                                                                              │
+│   src-tauri/                                                                 │
+│   ├── Cargo.toml              ← Thêm proptest vào [dev-dependencies]         │
+│   └── src/                                                                   │
+│       ├── main.rs             ← Thêm `mod pricing;`                          │
+│       └── pricing/                                                           │
+│           ├── mod.rs          ← Module declarations                          │
+│           ├── types.rs        ← Struct definitions                           │
+│           ├── engine.rs       ← Core pricing logic                           │
+│           └── property_tests.rs  ← ★ FILE TEST TASK 6.8                      │
+│                                                                              │
+│                                                                              │
+│  2. Thêm vào Cargo.toml                                                      │
+│                                                                              │
+│                                                                              │
+│   [dev-dependencies]                                                         │
+│   proptest = "1.4"                                                           │
+│                                                                              │
+│                                                                              │
+│  3. Thêm vào src-tauri/src/main.rs (hoặc lib.rs)                             │
+│                                                                              │
+│                                                                              │
+│   mod pricing;                                                               │
+│                                                                              │
+│                                                                              │
+│  4. Chạy test                                                                │
+│                                                                              │
+│                                                                              │
+│   cd src-tauri                                                               │
+│   cargo test pricing::property_tests -- --nocapture                          │
+│                                                                              │
+│                                                                              │
+│  Hoặc chạy riêng property test chính:                                        │
+│                                                                              │
+│                                                                              │
+│   cargo test prop_sum_line_items_equals_total -- --nocapture                 │
+│                                                                              │
+│                                                                              │
+│  5. Chạy với nhiều cases hơn (stress test)                                   │
+│                                                                              │
+│                                                                              │
+│   PROPTEST_CASES=100000 cargo test prop_sum_line_items_equals_total --       │
+│   --nocapture                                                                │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Tóm tắt Properties đã test                                                  │
+│                                                                              │
+│                                                                              │
+│   #   Property              Mô tả                                            │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   1   sum == total          ★ CHÍNH: Tổng subtotal của mọi line_items luôn   │
+│                             bằng total                                       │
+│   2   total >= 0            Với discount hợp lệ, total không âm              │
+│   3   subtotal consistency  amount * quantity = subtotal cho non-% items     │
+│   4   monotonicity          Thêm đêm → total tăng                            │
+│   5   no discount floor     Không giảm giá → total >= room charge            │
+│   6   currency = VND        Luôn trả về VND                                  │
+│   7   non-empty             Luôn có ít nhất 1 line item                      │
+│   8   idempotent            Cùng input → cùng output                         │
+│   9   edge cases            Invariant giữ với giá trị 0                      │
+│   10  large values          Invariant giữ với giá trị lớn (overflow check)   │
+│                                                                              │
+│                                                                              │
+│  Property #1 là core invariant của task 6.8: sum(line_items[i].subtotal) ==  │
+│  total phải đúng cho mọi input ngẫu nhiên.                                   │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

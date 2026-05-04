@@ -1,0 +1,315 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│  File cần sửa: mhm/src/components/CheckinSheet.tsx                           │
+│                                                                              │
+│                                                                              │
+│   import { useEffect, useMemo, useState } from "react";                      │
+│   import { invoke } from "@tauri-apps/api/core";                             │
+│   import { Button } from "@/components/ui/button";                           │
+│   import { Input } from "@/components/ui/input";                             │
+│                                                                              │
+│   type Guest = {                                                             │
+│     name: string;                                                            │
+│     id_number: string;                                                       │
+│   };                                                                         │
+│                                                                              │
+│   type Room = {                                                              │
+│     id: string;                                                              │
+│     number: string;                                                          │
+│     status: string;                                                          │
+│     type: string;                                                            │
+│     base_price: number;                                                      │
+│   };                                                                         │
+│                                                                              │
+│   type CheckinSheetProps = {                                                 │
+│     open: boolean;                                                           │
+│     onOpenChange: (open: boolean) => void;                                   │
+│     rooms: Room[];                                                           │
+│     onSubmit: (payload: {                                                    │
+│       room_id: string;                                                       │
+│       guests: Guest[];                                                       │
+│       nights: number;                                                        │
+│       total_price: number;                                                   │
+│     }) => Promise<void> | void;                                              │
+│   };                                                                         │
+│                                                                              │
+│   export default function CheckinSheet({                                     │
+│     open,                                                                    │
+│     onOpenChange,                                                            │
+│     rooms,                                                                   │
+│     onSubmit,                                                                │
+│   }: CheckinSheetProps) {                                                    │
+│     const [selectedRoom, setSelectedRoom] = useState("");                    │
+│     const [nights, setNights] = useState(1);                                 │
+│     const [guests, setGuests] = useState<Guest[]>([{ name: "", id_number:    │
+│   "" }]);                                                                    │
+│     const [submitting, setSubmitting] = useState(false);                     │
+│                                                                              │
+│     const [pricingPreview, setPricingPreview] = useState<{                   │
+│       line_items: Array<{ description: string; amount: number }>;            │
+│       room_subtotal: number;                                                 │
+│       currency: string;                                                      │
+│     } | null>(null);                                                         │
+│     const [pricingMode, setPricingMode] = useState("auto");                  │
+│                                                                              │
+│     const vacantRooms = useMemo(                                             │
+│       () => rooms.filter((r) => r.status === "vacant"),                      │
+│       [rooms],                                                               │
+│     );                                                                       │
+│                                                                              │
+│     const selectedRoomData = useMemo(                                        │
+│       () => rooms.find((r) => r.id === selectedRoom),                        │
+│       [rooms, selectedRoom],                                                 │
+│     );                                                                       │
+│                                                                              │
+│     useEffect(() => {                                                        │
+│       if (!open) {                                                           │
+│         setSelectedRoom("");                                                 │
+│         setNights(1);                                                        │
+│         setGuests([{ name: "", id_number: "" }]);                            │
+│         setPricingPreview(null);                                             │
+│         setPricingMode("auto");                                              │
+│         setSubmitting(false);                                                │
+│       }                                                                      │
+│     }, [open]);                                                              │
+│                                                                              │
+│     useEffect(() => {                                                        │
+│       if (!selectedRoom || !selectedRoomData) {                              │
+│         setPricingPreview(null);                                             │
+│         return;                                                              │
+│       }                                                                      │
+│                                                                              │
+│       const timer = setTimeout(async () => {                                 │
+│         try {                                                                │
+│           const now = new Date();                                            │
+│           const checkOut = new Date(now.getTime() + nights * 86400000);      │
+│           const result = await invoke<{                                      │
+│             line_items: Array<{ description: string; amount: number }>;      │
+│             room_subtotal: number;                                           │
+│             currency: string;                                                │
+│           }>("calculate_price_v2", {                                         │
+│             roomTypeId: selectedRoomData.type,                               │
+│             checkIn: now.toISOString(),                                      │
+│             checkOut: checkOut.toISOString(),                                │
+│             occupants: guests.length,                                        │
+│             mode: pricingMode === "auto" ? null : pricingMode,               │
+│           });                                                                │
+│           setPricingPreview(result);                                         │
+│         } catch {                                                            │
+│           setPricingPreview(null);                                           │
+│         }                                                                    │
+│       }, 200);                                                               │
+│                                                                              │
+│       return () => clearTimeout(timer);                                      │
+│     }, [selectedRoom, selectedRoomData, nights, guests.length,               │
+│   pricingMode]);                                                             │
+│                                                                              │
+│     const totalPrice = pricingPreview?.room_subtotal ?? 0;                   │
+│                                                                              │
+│     const updateGuest = (                                                    │
+│       index: number,                                                         │
+│       field: keyof Guest,                                                    │
+│       value: string,                                                         │
+│     ) => {                                                                   │
+│       setGuests((prev) =>                                                    │
+│         prev.map((guest, i) =>                                               │
+│           i === index ? { ...guest, [field]: value } : guest,                │
+│         ),                                                                   │
+│       );                                                                     │
+│     };                                                                       │
+│                                                                              │
+│     const addGuest = () => {                                                 │
+│       setGuests((prev) => [...prev, { name: "", id_number: "" }]);           │
+│     };                                                                       │
+│                                                                              │
+│     const removeGuest = (index: number) => {                                 │
+│       setGuests((prev) => {                                                  │
+│         if (prev.length === 1) return prev;                                  │
+│         return prev.filter((_, i) => i !== index);                           │
+│       });                                                                    │
+│     };                                                                       │
+│                                                                              │
+│     const handleSubmit = async () => {                                       │
+│       if (!selectedRoom || submitting) return;                               │
+│                                                                              │
+│       setSubmitting(true);                                                   │
+│       try {                                                                  │
+│         await onSubmit({                                                     │
+│           room_id: selectedRoom,                                             │
+│           guests,                                                            │
+│           nights,                                                            │
+│           total_price: totalPrice,                                           │
+│         });                                                                  │
+│         onOpenChange(false);                                                 │
+│       } finally {                                                            │
+│         setSubmitting(false);                                                │
+│       }                                                                      │
+│     };                                                                       │
+│                                                                              │
+│     if (!open) return null;                                                  │
+│                                                                              │
+│     return (                                                                 │
+│       <div className="fixed inset-0 z-50 flex items-center justify-center    │
+│   bg-black/50 p-4">                                                          │
+│         <div className="flex max-h-[90vh] w-full max-w-2xl flex-col          │
+│   overflow-hidden rounded-lg bg-white shadow-xl">                            │
+│           <div className="border-b px-6 py-4">                               │
+│             <h2 className="text-lg font-semibold">Nhận phòng</h2>            │
+│             <p className="text-sm text-muted-foreground">                    │
+│               Tạo lượt lưu trú và xem trước giá theo thời gian thực          │
+│             </p>                                                             │
+│           </div>                                                             │
+│                                                                              │
+│           <div className="flex-1 space-y-6 overflow-y-auto px-6 py-4">       │
+│             <div className="space-y-2">                                      │
+│               <label className="text-sm font-medium">Phòng</label>           │
+│               <select                                                        │
+│                 value={selectedRoom}                                         │
+│                 onChange={(e) => setSelectedRoom(e.target.value)}            │
+│                 className="flex h-10 w-full rounded-md border border-input   │
+│   bg-background px-3 py-2 text-sm"                                           │
+│               >                                                              │
+│                 <option value="">Chọn phòng</option>                         │
+│                 {vacantRooms.map((room) => (                                 │
+│                   <option key={room.id} value={room.id}>                     │
+│                     Phòng {room.number}                                      │
+│                   </option>                                                  │
+│                 ))}                                                          │
+│               </select>                                                      │
+│             </div>                                                           │
+│                                                                              │
+│             <div className="space-y-2">                                      │
+│               <label className="text-sm font-medium">Số đêm</label>          │
+│               <Input                                                         │
+│                 type="number"                                                │
+│                 min={1}                                                      │
+│                 value={nights}                                               │
+│                 onChange={(e) =>                                             │
+│                   setNights(Math.max(1, Number.parseInt(e.target.value ||    │
+│   "1", 10)))                                                                 │
+│                 }                                                            │
+│               />                                                             │
+│             </div>                                                           │
+│                                                                              │
+│             <div className="space-y-3">                                      │
+│               <div className="flex items-center justify-between">            │
+│                 <label className="text-sm font-medium">Khách lưu             │
+│   trú</label>                                                                │
+│                 <Button type="button" variant="outline" size="sm"            │
+│   onClick={addGuest}>                                                        │
+│                   Thêm khách                                                 │
+│                 </Button>                                                    │
+│               </div>                                                         │
+│                                                                              │
+│               {guests.map((guest, index) => (                                │
+│                 <div                                                         │
+│                   key={index}                                                │
+│                   className="grid gap-3 rounded-lg border p-3                │
+│   md:grid-cols-[1fr_1fr_auto]"                                               │
+│                 >                                                            │
+│                   <Input                                                     │
+│                     placeholder="Tên khách"                                  │
+│                     value={guest.name}                                       │
+│                     onChange={(e) => updateGuest(index, "name",              │
+│   e.target.value)}                                                           │
+│                   />                                                         │
+│                   <Input                                                     │
+│                     placeholder="Số giấy tờ"                                 │
+│                     value={guest.id_number}                                  │
+│                     onChange={(e) => updateGuest(index, "id_number",         │
+│   e.target.value)}                                                           │
+│                   />                                                         │
+│                   <Button                                                    │
+│                     type="button"                                            │
+│                     variant="outline"                                        │
+│                     onClick={() => removeGuest(index)}                       │
+│                     disabled={guests.length === 1}                           │
+│                   >                                                          │
+│                     Xóa                                                      │
+│                   </Button>                                                  │
+│                 </div>                                                       │
+│               ))}                                                            │
+│             </div>                                                           │
+│                                                                              │
+│             {pricingPreview?.line_items?.length ? (                          │
+│               <div className="rounded-lg border bg-muted/30 p-4">            │
+│                 <div className="mb-2 text-sm font-medium">Chi tiết tính      │
+│   giá</div>                                                                  │
+│                 <div className="space-y-2">                                  │
+│                   {pricingPreview.line_items.map((item, index) => (          │
+│                     <div                                                     │
+│                       key={`${item.description}-${index}`}                   │
+│                       className="flex items-center justify-between gap-4     │
+│   text-sm"                                                                   │
+│                     >                                                        │
+│                       <span                                                  │
+│   className="text-muted-foreground">{item.description}</span>                │
+│                       <span className="font-medium">                         │
+│                         {item.amount.toLocaleString("vi-VN")}                │
+│   {pricingPreview.currency}                                                  │
+│                       </span>                                                │
+│                     </div>                                                   │
+│                   ))}                                                        │
+│                 </div>                                                       │
+│               </div>                                                         │
+│             ) : null}                                                        │
+│           </div>                                                             │
+│                                                                              │
+│           <div className="flex flex-col gap-3 border-t px-6 py-4             │
+│   md:flex-row md:items-center md:justify-between">                           │
+│             <div className="flex items-center gap-3">                        │
+│               <label className="text-sm font-medium">Cách tính</label>       │
+│               <select                                                        │
+│                 value={pricingMode}                                          │
+│                 onChange={(e) => setPricingMode(e.target.value)}             │
+│                 className="flex h-10 rounded-md border border-input          │
+│   bg-background px-3 py-2 text-sm"                                           │
+│               >                                                              │
+│                 <option value="auto">Tự động</option>                        │
+│                 <option value="hourly">Theo giờ</option>                     │
+│                 <option value="overnight">Qua đêm</option>                   │
+│                 <option value="night">Theo ngày</option>                     │
+│                 <option value="monthly">Theo tháng</option>                  │
+│               </select>                                                      │
+│             </div>                                                           │
+│                                                                              │
+│             <div className="text-right">                                     │
+│               <div className="text-sm text-muted-foreground">Tổng tiền       │
+│   phòng</div>                                                                │
+│               <div className="text-lg font-semibold">                        │
+│                 {totalPrice.toLocaleString("vi-VN")}{" "}                    │
+│                 {pricingPreview?.currency ?? "VND"}                          │
+│               </div>                                                         │
+│             </div>                                                           │
+│                                                                              │
+│             <div className="flex gap-2">                                     │
+│               <Button                                                        │
+│                 type="button"                                                │
+│                 variant="outline"                                            │
+│                 onClick={() => onOpenChange(false)}                          │
+│                 disabled={submitting}                                        │
+│               >                                                              │
+│                 Hủy                                                          │
+│               </Button>                                                      │
+│               <Button                                                        │
+│                 type="button"                                                │
+│                 onClick={handleSubmit}                                       │
+│                 disabled={!selectedRoom || submitting}                       │
+│               >                                                              │
+│                 {submitting ? "Đang lưu..." : "Xác nhận check-in"}           │
+│               </Button>                                                      │
+│             </div>                                                           │
+│           </div>                                                             │
+│         </div>                                                               │
+│       </div>                                                                 │
+│     );                                                                       │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  Nếu bạn muốn, mình có thể làm tiếp TASK 7b: viết luôn Vitest test cho       │
+│  CheckinSheet để mock invoke("calculate_price_v2") và verify preview cập     │
+│  nhật realtime đúng theo pricingMode.                                        │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

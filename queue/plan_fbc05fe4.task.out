@@ -1,0 +1,108 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│  Mình chưa thể trả “CODE hoàn chỉnh” một cách chính xác cho task này vì      │
+│  hiện tại mình chưa đọc được source repo local tại:                          │
+│                                                                              │
+│  /Volumes/Data/Hotel/CapyInn/mhm                                             │
+│                                                                              │
+│  Trong khi yêu cầu của bạn là:                                               │
+│                                                                              │
+│   • tuân thủ pattern code hiện có                                            │
+│   • sửa đúng file thật như mhm/src-tauri/src/lib.rs                          │
+│   • nếu TASK 1 đã có #[tauri::command] pricing_lock thì chỉ cần register +   │
+│     test tương thích với implementation hiện hữu                             │
+│                                                                              │
+│  Hiện mình chỉ có context mô tả, chưa có nội dung thật của các file như:     │
+│                                                                              │
+│   • mhm/src-tauri/src/lib.rs                                                 │
+│   • mhm/src-tauri/src/commands/pricing.rs                                    │
+│   • chỗ định nghĩa Db / AppState / pool SQLite                               │
+│   • test setup hiện có                                                       │
+│                                                                              │
+│  Nếu mình tự bịa code full ở đây, rất dễ lệch compile với project thực tế.   │
+│                                                                              │
+│  Để mình làm đúng ngay, bạn chỉ cần gửi 3 file này:                          │
+│                                                                              │
+│   1 mhm/src-tauri/src/lib.rs                                                 │
+│   2 mhm/src-tauri/src/commands/pricing.rs                                    │
+│   3 file chứa state/db pool hiện đang inject vào command (nếu tách riêng)    │
+│                                                                              │
+│  Hoặc paste cây module src-tauri/src/*.rs.                                   │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Trong lúc chờ, đây là đúng hướng sửa cho TASK 2                             │
+│                                                                              │
+│  1) Register command trong mhm/src-tauri/src/lib.rs                          │
+│                                                                              │
+│  Theo Tauri docs, command cần được đưa vào một                               │
+│  invoke_handler(generate_handler![...]), ví dụ:                              │
+│                                                                              │
+│                                                                              │
+│   .invoke_handler(tauri::generate_handler![                                  │
+│       commands::pricing::pricing_preview,                                    │
+│       commands::pricing::pricing_lock,                                       │
+│   ])                                                                         │
+│                                                                              │
+│                                                                              │
+│  Tauri v2 docs xác nhận command trong module riêng được register bằng đường  │
+│  dẫn đầy đủ trong generate_handler!, và frontend vẫn invoke bằng tên         │
+│  command gốc. Ngoài ra, không được gọi invoke_handler nhiều lần vì chỉ lần   │
+│  cuối có hiệu lực. Nguồn: Tauri “Calling Rust from the Frontend” / command   │
+│  registration docs. citeturn0search0                                      │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  2) Unit test cho pricing_lock với mock DB                                   │
+│                                                                              │
+│  Nếu pricing_lock đang là #[tauri::command] async fn pricing_lock(...),      │
+│  cách test đơn giản nhất thường là:                                          │
+│                                                                              │
+│   • tách logic DB vào hàm nội bộ kiểu:                                       │
+│      • pub(crate) async fn pricing_lock_with_pool(pool: &SqlitePool,         │
+│        stay_id: String) -> Result<..., ...>                                  │
+│   • command chỉ là wrapper nhận State<AppState>                              │
+│   • unit test gọi trực tiếp hàm nội bộ với SQLite in-memory                  │
+│                                                                              │
+│  Ví dụ pattern:                                                              │
+│                                                                              │
+│                                                                              │
+│   #[tauri::command]                                                          │
+│   pub async fn pricing_lock(                                                 │
+│       state: tauri::State<'_, AppState>,                                     │
+│       stay_id: String,                                                       │
+│   ) -> Result<PricingLockResult, String> {                                   │
+│       pricing_lock_with_pool(&state.db, &stay_id)                            │
+│           .await                                                             │
+│           .map_err(|e| e.to_string())                                        │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  và test:                                                                    │
+│                                                                              │
+│                                                                              │
+│   #[tokio::test]                                                             │
+│   async fn pricing_lock_locks_total_on_mock_db() {                           │
+│       let pool = SqlitePool::connect(":memory:").await.unwrap();             │
+│                                                                              │
+│       // create minimal schema                                               │
+│       // seed stay + related rate data                                       │
+│       // call pricing_lock_with_pool(&pool, "stay_1").await                  │
+│       // assert locked_pricing_at / locked_total updated                     │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Nếu bạn muốn, mình có thể trả ngay bản patch hoàn chỉnh                     │
+│                                                                              │
+│  Chỉ cần bạn gửi nội dung file thật, mình sẽ trả theo đúng format:           │
+│                                                                              │
+│   • file path cần sửa                                                        │
+│   • code hoàn chỉnh                                                          │
+│   • nếu cần, thêm test Rust đầy đủ                                           │
+│   • bám sát implementation TASK 1 hiện có, không placeholder.                │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

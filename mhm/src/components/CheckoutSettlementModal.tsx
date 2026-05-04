@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import InfoItem from "@/components/shared/InfoItem";
@@ -10,6 +10,17 @@ import type {
     CheckoutSettlementPayload,
     CheckoutSettlementPreview,
 } from "@/types";
+
+interface PricingLineItem {
+    description: string;
+    amount: number;
+}
+
+interface PricingBreakdown {
+    line_items: PricingLineItem[];
+    room_subtotal: number;
+    currency: string;
+}
 
 interface CheckoutSettlementModalProps {
     open: boolean;
@@ -38,6 +49,32 @@ export default function CheckoutSettlementModal({
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const manualOverrideRef = useRef(false);
+    const [pricingBreakdown, setPricingBreakdown] = useState<PricingBreakdown | null>(null);
+    const [loadingBreakdown, setLoadingBreakdown] = useState(false);
+    const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Debounced pricing calculation
+    const fetchPricingBreakdown = useCallback(() => {
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(async () => {
+            if (!booking.check_in_at) return;
+            setLoadingBreakdown(true);
+            try {
+                const result = await invoke<PricingBreakdown>("calculate_price_v2", {
+                    roomTypeId: roomId,
+                    checkIn: booking.check_in_at,
+                    checkOut: new Date().toISOString(),
+                    mode: settlementMode === "hourly" ? "hourly" : null,
+                    occupants: 1,
+                });
+                setPricingBreakdown(result);
+            } catch {
+                setPricingBreakdown(null);
+            } finally {
+                setLoadingBreakdown(false);
+            }
+        }, 200);
+    }, [booking, roomId, settlementMode]);
 
     useEffect(() => {
         if (!open) {
@@ -89,6 +126,14 @@ export default function CheckoutSettlementModal({
             cancelled = true;
         };
     }, [open, booking.id, settlementMode]);
+
+    // Fetch pricing breakdown when modal opens or mode changes
+    useEffect(() => {
+        if (open) fetchPricingBreakdown();
+        return () => {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        };
+    }, [open, settlementMode, fetchPricingBreakdown]);
 
     if (!open) {
         return null;
@@ -145,6 +190,37 @@ export default function CheckoutSettlementModal({
                     {loadingPreview ? "Đang tính lại..." : preview?.explanation ?? ""}
                 </p>
 
+                {/* Pricing Breakdown (line items from calculate_price_v2) */}
+                {(loadingBreakdown || pricingBreakdown) && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/50 overflow-hidden">
+                        <p className="text-[11px] font-semibold text-slate-500 px-3 py-1.5 bg-slate-100/50 border-b border-slate-100">
+                            Chi tiết giá
+                        </p>
+                        {loadingBreakdown ? (
+                            <p className="text-xs text-slate-400 px-3 py-2">Đang tính...</p>
+                        ) : pricingBreakdown ? (
+                            <div className="divide-y divide-slate-100">
+                                {pricingBreakdown.line_items.map((item, idx) => (
+                                    <div key={idx} className="flex justify-between items-center px-3 py-1.5">
+                                        <span className="text-[12px] text-slate-600">{item.description}</span>
+                                        <span className={`text-[12px] font-semibold tabular-nums ${
+                                            item.amount >= 0 ? 'text-slate-800' : 'text-red-500'
+                                        }`}>
+                                            {item.amount >= 0 ? '+' : ''}{fmtMoney(item.amount)}
+                                        </span>
+                                    </div>
+                                ))}
+                                <div className="flex justify-between items-center px-3 py-2 bg-blue-50/50">
+                                    <span className="text-[12px] font-semibold text-blue-700">Tổng tính giá</span>
+                                    <span className="text-[13px] font-bold text-blue-700 tabular-nums">
+                                        {fmtMoney(pricingBreakdown.room_subtotal)}
+                                    </span>
+                                </div>
+                            </div>
+                        ) : null}
+                    </div>
+                )}
+
                 <div>
                     <label
                         htmlFor="checkout-final-total"
@@ -169,6 +245,37 @@ export default function CheckoutSettlementModal({
                         Booking đã overpaid. Hãy xử lý refund trước khi checkout.
                     </p>
                 )}
+
+                {/* Task 5.5: Late checkout warning */}
+                {(() => {
+                    const expectedCheckout = new Date(booking.expected_checkout);
+                    const now = new Date();
+                    const diffMs = now.getTime() - expectedCheckout.getTime();
+                    const diffHours = Math.floor(diffMs / 3600000);
+
+                    if (diffHours >= 4) {
+                        return (
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
+                                <p className="text-xs font-semibold text-red-700 flex items-center gap-1">
+                                    ⚠️ Check-out muộn {diffHours} giờ — vượt ngưỡng 4h
+                                </p>
+                                <p className="text-[11px] text-red-600">
+                                    Hệ thống tính 100% giá ngày bổ sung. Xem lại "Chi tiết giá" ở trên.
+                                </p>
+                            </div>
+                        );
+                    }
+                    if (diffHours >= 1) {
+                        return (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                                <p className="text-xs font-semibold text-amber-700 flex items-center gap-1">
+                                    ⏰ Check-out muộn {diffHours} giờ — phụ thu có thể áp dụng
+                                </p>
+                            </div>
+                        );
+                    }
+                    return null;
+                })()}
             </div>
 
             <div className="flex gap-2.5 mt-5">

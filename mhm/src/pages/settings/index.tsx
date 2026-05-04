@@ -10,6 +10,7 @@ import {
   RefreshCcw,
   Users,
   Wifi,
+  Zap,
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
@@ -19,6 +20,7 @@ import AppearanceSection from "./AppearanceSection";
 import CheckinRulesSection from "./CheckinRulesSection";
 import DataSection from "./DataSection";
 import DiagnosticsSection from "./DiagnosticsSection";
+import DynamicPricingSection from "./DynamicPricingSection";
 import GatewaySection from "./GatewaySection";
 import HotelInfoSection from "./HotelInfoSection";
 import OcrConfigSection from "./OcrConfigSection";
@@ -38,6 +40,7 @@ type SettingsSectionKey =
   | "gateway"
   | "updates"
   | "pricing"
+  | "dynamic_pricing"
   | "users";
 
 export default function SettingsPage() {
@@ -57,6 +60,7 @@ export default function SettingsPage() {
     ...(isAdmin()
       ? [
         { key: "pricing" as const, label: "Pricing", icon: DollarSign },
+        { key: "dynamic_pricing" as const, label: "Dynamic Pricing", icon: Zap },
         { key: "users" as const, label: "Users", icon: Users },
       ]
       : []),
@@ -95,6 +99,7 @@ export default function SettingsPage() {
         {activeSection === "gateway" && <GatewaySection />}
         {activeSection === "updates" && <SoftwareUpdateSection />}
         {activeSection === "pricing" && isAdmin() && <PricingSection />}
+        {activeSection === "dynamic_pricing" && isAdmin() && <DynamicPricingSection />}
         {activeSection === "users" && isAdmin() && <UserManagement />}
       </Card>
     </div>

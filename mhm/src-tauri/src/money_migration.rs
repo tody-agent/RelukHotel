@@ -895,3 +895,48 @@ fn quote_identifier(identifier: &str) -> String {
 fn quote_sql_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
+
+pub(crate) async fn migrate_pricing_rules_to_rate_plan(tx: &mut Transaction<'_, Sqlite>) -> Result<(), sqlx::Error> {
+    if !table_exists(tx, "pricing_rules").await? {
+        return Ok(());
+    }
+    
+    if !table_exists(tx, "room_types").await? {
+        return Ok(());
+    }
+
+    let sql = "SELECT p.room_type, p.hourly_rate, p.overnight_rate, p.daily_rate, p.early_checkin_surcharge_pct, p.late_checkout_surcharge_pct, r.id as room_type_id
+               FROM pricing_rules p
+               JOIN room_types r ON r.name = p.room_type";
+    
+    let rows = sqlx::query(sql).fetch_all(&mut **tx).await?;
+    
+    for row in rows {
+        let room_type_id: String = row.get("room_type_id");
+        let room_type_name: String = row.get("room_type");
+        let overnight_rate: i64 = row.get("overnight_rate");
+        let daily_rate: i64 = row.get("daily_rate");
+
+        let id = uuid::Uuid::new_v4().to_string();
+        
+        let insert_sql = "
+            INSERT INTO rate_plan (
+                id, property_id, room_type_id, name, is_default, currency, capacity,
+                night_rate, overnight_rate, overnight_start_hour
+            ) VALUES (
+                ?, 'default', ?, ?, 1, 'VND', 2,
+                ?, ?, 21
+            )
+        ";
+        sqlx::query(insert_sql)
+            .bind(&id)
+            .bind(&room_type_id)
+            .bind(format!("Default {}", room_type_name))
+            .bind(daily_rate)
+            .bind(overnight_rate)
+            .execute(&mut **tx)
+            .await?;
+    }
+    
+    Ok(())
+}

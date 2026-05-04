@@ -1,0 +1,335 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Now I have a good understanding of proptest. Let me create the              │
+│  property-based test for pricing idempotency.                                │
+│                                                                              │
+│   Task 6.9: Property-based test — Pricing là idempotent (gọi 2 lần ra cùng   │
+│                                   kết quả)                                   │
+│                                                                              │
+│  CODE                                                                        │
+│                                                                              │
+│  File: src-tauri/Cargo.toml (thêm dev-dependency)                            │
+│                                                                              │
+│                                                                              │
+│   [dev-dependencies]                                                         │
+│   proptest = "1.11.0"                                                        │
+│                                                                              │
+│                                                                              │
+│  File: src-tauri/src/pricing/tests/prop_idempotent.rs                        │
+│                                                                              │
+│                                                                              │
+│   //! Task 6.9 - Property-based test: pricing là idempotent (gọi 2 lần ra    │
+│   cùng kết quả)                                                              │
+│   //!                                                                        │
+│   //! Đảm bảo rằng với bất kỳ input hợp lệ nào, hàm calculate_price luôn     │
+│   trả về                                                                     │
+│   //! cùng một kết quả khi gọi nhiều lần (deterministic / idempotent).       │
+│                                                                              │
+│   use proptest::prelude::*;                                                  │
+│                                                                              │
+│   use crate::pricing::engine::{calculate_price, PricingInput,                │
+│   PricingResult};                                                            │
+│   use crate::pricing::models::{                                              │
+│       DateRange, GuestCount, MealPlan, RatePlan, RoomType, SeasonType,       │
+│   };                                                                         │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên RoomType                                   │
+│   fn arb_room_type() -> impl Strategy<Value = RoomType> {                    │
+│       prop_oneof![                                                           │
+│           Just(RoomType::Standard),                                          │
+│           Just(RoomType::Superior),                                          │
+│           Just(RoomType::Deluxe),                                            │
+│           Just(RoomType::Suite),                                             │
+│       ]                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên MealPlan                                   │
+│   fn arb_meal_plan() -> impl Strategy<Value = MealPlan> {                    │
+│       prop_oneof![                                                           │
+│           Just(MealPlan::RoomOnly),                                          │
+│           Just(MealPlan::Breakfast),                                         │
+│           Just(MealPlan::HalfBoard),                                         │
+│           Just(MealPlan::FullBoard),                                         │
+│       ]                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên RatePlan                                   │
+│   fn arb_rate_plan() -> impl Strategy<Value = RatePlan> {                    │
+│       prop_oneof![                                                           │
+│           Just(RatePlan::Standard),                                          │
+│           Just(RatePlan::NonRefundable),                                     │
+│           Just(RatePlan::EarlyBird),                                         │
+│           Just(RatePlan::LastMinute),                                        │
+│           Just(RatePlan::LongStay),                                          │
+│       ]                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên SeasonType                                 │
+│   fn arb_season_type() -> impl Strategy<Value = SeasonType> {                │
+│       prop_oneof![                                                           │
+│           Just(SeasonType::Low),                                             │
+│           Just(SeasonType::Shoulder),                                        │
+│           Just(SeasonType::High),                                            │
+│           Just(SeasonType::Peak),                                            │
+│       ]                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên GuestCount hợp lệ                          │
+│   fn arb_guest_count() -> impl Strategy<Value = GuestCount> {                │
+│       (1u32..6, 0u32..4).prop_map(|(adults, children)| GuestCount {          │
+│   adults, children })                                                        │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên DateRange (1-30 đêm)                       │
+│   fn arb_date_range() -> impl Strategy<Value = DateRange> {                  │
+│       (1u32..=30u32).prop_map(|nights| {                                     │
+│           // Sử dụng ngày check-in cố định để đơn giản hóa,                  │
+│           // property test tập trung vào idempotency không phải date logic   │
+│           DateRange {                                                        │
+│               check_in: "2025-06-15".to_string(),                            │
+│               nights,                                                        │
+│           }                                                                  │
+│       })                                                                     │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên base_rate hợp lệ (VND)                     │
+│   fn arb_base_rate() -> impl Strategy<Value = f64> {                         │
+│       // Giá phòng từ 200,000 đến 20,000,000 VND                             │
+│       (200_000.0f64..20_000_000.0f64)                                        │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên discount percentage                        │
+│   fn arb_discount_percent() -> impl Strategy<Value = f64> {                  │
+│       (0.0f64..50.0f64)                                                      │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh ngẫu nhiên extra charges (phụ thu)                    │
+│   fn arb_extra_charges() -> impl Strategy<Value = Vec<f64>> {                │
+│       prop::collection::vec(10_000.0f64..2_000_000.0f64, 0..5)               │
+│   }                                                                          │
+│                                                                              │
+│   /// Strategy để sinh toàn bộ PricingInput                                  │
+│   fn arb_pricing_input() -> impl Strategy<Value = PricingInput> {            │
+│       (                                                                      │
+│           arb_room_type(),                                                   │
+│           arb_meal_plan(),                                                   │
+│           arb_rate_plan(),                                                   │
+│           arb_season_type(),                                                 │
+│           arb_guest_count(),                                                 │
+│           arb_date_range(),                                                  │
+│           arb_base_rate(),                                                   │
+│           arb_discount_percent(),                                            │
+│           arb_extra_charges(),                                               │
+│       )                                                                      │
+│           .prop_map(                                                         │
+│               |(                                                             │
+│                   room_type,                                                 │
+│                   meal_plan,                                                 │
+│                   rate_plan,                                                 │
+│                   season_type,                                               │
+│                   guest_count,                                               │
+│                   date_range,                                                │
+│                   base_rate,                                                 │
+│                   discount_percent,                                          │
+│                   extra_charges,                                             │
+│               )| {                                                           │
+│                   PricingInput {                                             │
+│                       room_type,                                             │
+│                       meal_plan,                                             │
+│                       rate_plan,                                             │
+│                       season_type,                                           │
+│                       guest_count,                                           │
+│                       date_range,                                            │
+│                       base_rate,                                             │
+│                       discount_percent,                                      │
+│                       extra_charges,                                         │
+│                   }                                                          │
+│               },                                                             │
+│           )                                                                  │
+│   }                                                                          │
+│                                                                              │
+│   proptest! {                                                                │
+│       /// Property: calculate_price là idempotent —                          │
+│       /// Gọi 2 lần với cùng input phải cho ra cùng kết quả byte-for-byte.   │
+│       #[test]                                                                │
+│       fn pricing_is_idempotent(input in arb_pricing_input()) {               │
+│           let result1 = calculate_price(&input);                             │
+│           let result2 = calculate_price(&input);                             │
+│                                                                              │
+│           // So sánh toàn bộ kết quả                                         │
+│           prop_assert_eq!(&result1, &result2,                                │
+│               "Pricing không idempotent! Input: {:?}", input);               │
+│       }                                                                      │
+│                                                                              │
+│       /// Property: calculate_price gọi N lần (N=5) luôn cho cùng kết quả    │
+│       /// (kiểm tra idempotency mạnh hơn - loại trừ hidden state / global    │
+│   mutation)                                                                  │
+│       #[test]                                                                │
+│       fn pricing_is_deterministic_across_multiple_calls(input in             │
+│   arb_pricing_input()) {                                                     │
+│           let results: Vec<PricingResult> = (0..5)                           │
+│               .map(|_| calculate_price(&input))                              │
+│               .collect();                                                    │
+│                                                                              │
+│           for i in 1..results.len() {                                        │
+│               prop_assert_eq!(&results[0], &results[i],                      │
+│                   "Pricing không deterministic tại lần gọi thứ {}! Input:    │
+│   {:?}", i + 1, input);                                                      │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       /// Property: Cloning input trước khi tính không ảnh hưởng kết quả     │
+│       /// (đảm bảo không có side-effect lên input)                           │
+│       #[test]                                                                │
+│       fn pricing_does_not_mutate_input_semantics(input in                    │
+│   arb_pricing_input()) {                                                     │
+│           let input_clone = input.clone();                                   │
+│           let result_original = calculate_price(&input);                     │
+│           let result_clone = calculate_price(&input_clone);                  │
+│                                                                              │
+│           prop_assert_eq!(&result_original, &result_clone,                   │
+│               "Kết quả khác nhau giữa original và clone! Input: {:?}",       │
+│   input);                                                                    │
+│       }                                                                      │
+│                                                                              │
+│       /// Property: Thứ tự tính toán không ảnh hưởng —                       │
+│       /// Tính price cho 2 input khác nhau rồi tính lại input đầu tiên vẫn   │
+│   cho cùng kết quả                                                           │
+│       /// (loại trừ global mutable state / caching bugs)                     │
+│       #[test]                                                                │
+│       fn pricing_no_cross_contamination(                                     │
+│           input_a in arb_pricing_input(),                                    │
+│           input_b in arb_pricing_input()                                     │
+│       ) {                                                                    │
+│           let result_a_before = calculate_price(&input_a);                   │
+│           let _result_b = calculate_price(&input_b); // Tính giá input       │
+│   khác ở giữa                                                                │
+│           let result_a_after = calculate_price(&input_a);                    │
+│                                                                              │
+│           prop_assert_eq!(&result_a_before, &result_a_after,                 │
+│               "Pricing bị cross-contamination! Input A: {:?}, Input B:       │
+│   {:?}", input_a, input_b);                                                  │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod sanity_check {                                                         │
+│       use super::*;                                                          │
+│                                                                              │
+│       /// Smoke test để đảm bảo strategy tạo được input hợp lệ               │
+│       #[test]                                                                │
+│       fn strategy_produces_valid_inputs() {                                  │
+│           let runner = proptest::test_runner::TestRunner::default();         │
+│           let strategy = arb_pricing_input();                                │
+│                                                                              │
+│           // Chỉ cần verify rằng strategy có thể generate được values        │
+│           let mut runner = runner;                                           │
+│           let tree = strategy.new_tree(&mut runner).unwrap();                │
+│           let input = tree.current();                                        │
+│                                                                              │
+│           // Basic sanity checks                                             │
+│           assert!(input.base_rate >= 200_000.0);                             │
+│           assert!(input.base_rate <= 20_000_000.0);                          │
+│           assert!(input.guest_count.adults >= 1);                            │
+│           assert!(input.date_range.nights >= 1);                             │
+│           assert!(input.discount_percent >= 0.0);                            │
+│           assert!(input.discount_percent <= 50.0);                           │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  File: src-tauri/src/pricing/tests/mod.rs (thêm module)                      │
+│                                                                              │
+│                                                                              │
+│   // Thêm dòng này vào file tests/mod.rs hiện có                             │
+│   mod prop_idempotent;                                                       │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code                                                          │
+│                                                                              │
+│  1. Thêm dependency proptest                                                 │
+│                                                                              │
+│  Trong src-tauri/Cargo.toml, thêm vào section [dev-dependencies]:            │
+│                                                                              │
+│                                                                              │
+│   [dev-dependencies]                                                         │
+│   proptest = "1.11.0"                                                        │
+│                                                                              │
+│                                                                              │
+│  2. Tạo file test                                                            │
+│                                                                              │
+│  Đặt file test tại:                                                          │
+│                                                                              │
+│                                                                              │
+│   src-tauri/src/pricing/tests/prop_idempotent.rs                             │
+│                                                                              │
+│                                                                              │
+│  3. Đăng ký module                                                           │
+│                                                                              │
+│  Trong src-tauri/src/pricing/tests/mod.rs, thêm:                             │
+│                                                                              │
+│                                                                              │
+│   mod prop_idempotent;                                                       │
+│                                                                              │
+│                                                                              │
+│  4. Đảm bảo models có derive cần thiết                                       │
+│                                                                              │
+│  Các struct PricingInput, PricingResult, và các enum (RoomType, MealPlan,    │
+│  RatePlan, SeasonType) cần có:                                               │
+│                                                                              │
+│                                                                              │
+│   #[derive(Debug, Clone, PartialEq)]                                         │
+│                                                                              │
+│                                                                              │
+│   • Debug — để proptest hiển thị failing case                                │
+│   • Clone — để clone input trong test                                        │
+│   • PartialEq — để so sánh kết quả (prop_assert_eq!)                         │
+│                                                                              │
+│  5. Chạy test                                                                │
+│                                                                              │
+│                                                                              │
+│   cd src-tauri                                                               │
+│   cargo test prop_idempotent -- --nocapture                                  │
+│                                                                              │
+│                                                                              │
+│  Hoặc chạy riêng từng property:                                              │
+│                                                                              │
+│                                                                              │
+│   cargo test pricing_is_idempotent -- --nocapture                            │
+│   cargo test pricing_is_deterministic_across_multiple_calls -- --nocapture   │
+│   cargo test pricing_no_cross_contamination -- --nocapture                   │
+│                                                                              │
+│                                                                              │
+│  6. Cấu hình số test cases (tuỳ chọn)                                        │
+│                                                                              │
+│  Mặc định proptest chạy 256 cases. Để tăng lên (ví dụ CI chạy 1000 cases):   │
+│                                                                              │
+│                                                                              │
+│   PROPTEST_CASES=1000 cargo test prop_idempotent                             │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Giải thích thiết kế                                                         │
+│                                                                              │
+│                                                                              │
+│   Property Test                       Mục đích                               │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   pricing_is_idempotent               Core test — cùng input → cùng output   │
+│                                       (2 lần)                                │
+│   pricing_is_deterministic_across_m…  Mở rộng — gọi 5 lần vẫn consistent     │
+│   pricing_does_not_mutate_input_sem…  Clone input → kết quả giống nhau (no   │
+│                                       hidden mutation)                       │
+│   pricing_no_cross_contamination      Tính giá input khác ở giữa không ảnh   │
+│                                       hưởng kết quả (no global state)        │
+│                                                                              │
+│                                                                              │
+│  Tất cả 4 properties cùng chứng minh tính idempotent và deterministic của    │
+│  pricing engine — đây là yêu cầu cốt lõi cho một hệ thống tính giá đáng tin  │
+│  cậy.                                                                        │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

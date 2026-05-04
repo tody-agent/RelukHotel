@@ -1,0 +1,840 @@
+Using model: Claude Opus 4.6
+
+╭────────────────────────────── Claude Opus 4.6 ───────────────────────────────╮
+│                                                                              │
+│  Let me search for more specific information about the SkyHotel pricing      │
+│  model used in Vietnamese hotels.Now I have a clear understanding of         │
+│  SkyHotel's pricing model. Key features: pricing by hour, overnight, daily;  │
+│  surcharges for late checkout (by day/overnight); early check-in surcharges  │
+│  (by day/overnight); surcharges can be fixed amount or percentage. Let me    │
+│  search for more details about the pricing tiers/steps.Now I have a          │
+│  comprehensive understanding of SkyHotel's pricing logic. Let me now build   │
+│  the domain types for the pricing crate. Based on the information gathered:  │
+│                                                                              │
+│  SkyHotel Pricing Logic:                                                     │
+│                                                                              │
+│   1 Hourly Rate - tiered pricing by hour (bậc thang theo giờ)                │
+│   2 Overnight Rate - flat rate for staying overnight (from e.g., 21h to 12h  │
+│     next day)                                                                │
+│   3 Daily Rate - per night/day rate                                          │
+│   4 Monthly Rate - flat monthly rate                                         │
+│   5 Surcharges:                                                              │
+│      • Late checkout surcharge (for daily stays) - tiered by hours exceeded  │
+│      • Late checkout surcharge (for overnight stays) - tiered by hours       │
+│        exceeded                                                              │
+│      • Early check-in surcharge (for daily stays) - tiered by hours          │
+│        exceeded                                                              │
+│      • Early check-in surcharge (for overnight stays) - tiered by hours      │
+│        exceeded                                                              │
+│      • Extra person surcharge - per person exceeding max occupancy           │
+│                                                                              │
+│  Here's the complete Rust implementation:                                    │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Implementation Code — src-tauri/crates/pricing/src/types.rs                 │
+│                                                                              │
+│                                                                              │
+│   //! Domain types for CapyInn Pricing Engine VN                             │
+│   //! Ported from SkyHotel pricing logic: hourly, overnight, daily,          │
+│   monthly rates                                                              │
+│   //! with surcharge steps for early check-in and late checkout.             │
+│                                                                              │
+│   use chrono::{NaiveDateTime, NaiveTime};                                    │
+│   use rust_decimal::Decimal;                                                 │
+│   use serde::{Deserialize, Serialize};                                       │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Enums                                                                   │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// The billing mode that was selected (or auto-detected) for a stay.      │
+│   #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]       │
+│   #[serde(rename_all = "snake_case")]                                        │
+│   pub enum BillingMode {                                                     │
+│       Hourly,                                                                │
+│       Overnight,                                                             │
+│       Daily,                                                                 │
+│       Monthly,                                                               │
+│   }                                                                          │
+│                                                                              │
+│   /// Whether a surcharge is a fixed amount (VND) or a percentage of base    │
+│   rate.                                                                      │
+│   #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]       │
+│   #[serde(rename_all = "snake_case")]                                        │
+│   pub enum SurchargeKind {                                                   │
+│       /// Fixed amount in VND (e.g., 50_000)                                 │
+│       Fixed,                                                                 │
+│       /// Percentage of base rate (e.g., 25 means 25%)                       │
+│       Percent,                                                               │
+│   }                                                                          │
+│                                                                              │
+│   /// Identifies the context in which a surcharge applies.                   │
+│   #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]       │
+│   #[serde(rename_all = "snake_case")]                                        │
+│   pub enum SurchargeContext {                                                │
+│       /// Late checkout surcharge for daily billing                          │
+│       LateCheckoutDaily,                                                     │
+│       /// Late checkout surcharge for overnight billing                      │
+│       LateCheckoutOvernight,                                                 │
+│       /// Early check-in surcharge for daily billing                         │
+│       EarlyCheckinDaily,                                                     │
+│       /// Early check-in surcharge for overnight billing                     │
+│       EarlyCheckinOvernight,                                                 │
+│       /// Extra person surcharge (per person per night/stay)                 │
+│       ExtraPerson,                                                           │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Surcharge Step (bậc thang phụ trội)                                     │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// A single step in a surcharge tier table.                               │
+│   ///                                                                        │
+│   /// SkyHotel uses tiered surcharges: e.g., first 1h over = 30k, 2h over    │
+│   = 50k, 3h+ = overnight rate.                                               │
+│   /// Each step defines: from `from_minutes` to `to_minutes`, charge         │
+│   `amount` (fixed or %).                                                     │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct SurchargeStep {                                                 │
+│       /// Inclusive lower bound in minutes (e.g., 0)                         │
+│       pub from_minutes: u32,                                                 │
+│       /// Exclusive upper bound in minutes (e.g., 60). Use `u32::MAX` or     │
+│   `None` for open-ended.                                                     │
+│       pub to_minutes: Option<u32>,                                           │
+│       /// The surcharge kind: fixed VND or percentage of base rate           │
+│       pub kind: SurchargeKind,                                               │
+│       /// The value: either VND amount or percentage (0-100)                 │
+│       pub amount: Decimal,                                                   │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Hourly Rate (giá theo giờ – bậc thang)                                  │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// A single tier in the hourly rate table.                                │
+│   ///                                                                        │
+│   /// SkyHotel hourly pricing is tiered:                                     │
+│   /// - First 2 hours = 100,000 VND                                          │
+│   /// - Hour 3 = +50,000                                                     │
+│   /// - Hour 4 = +50,000                                                     │
+│   /// - Beyond max hours → switch to overnight/daily                         │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct HourlyRateTier {                                                │
+│       /// The hour number (1-based). Hour 1 means "first hour".              │
+│       pub hour: u32,                                                         │
+│       /// Cumulative price up to (and including) this hour, in VND.          │
+│       /// Alternatively, can be incremental — see `is_cumulative`.           │
+│       pub price: Decimal,                                                    │
+│   }                                                                          │
+│                                                                              │
+│   /// Configuration for hourly-rate billing.                                 │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub struct HourlyRate {                                                    │
+│       /// The tiered pricing table (ordered by hour ascending).              │
+│       /// The price in each tier is the TOTAL price if the guest stays up    │
+│   to that many hours.                                                        │
+│       pub tiers: Vec<HourlyRateTier>,                                        │
+│       /// Maximum hours allowed for hourly billing. Beyond this, switch to   │
+│   overnight/daily.                                                           │
+│       pub max_hours: u32,                                                    │
+│       /// If true, `price` in each tier is cumulative total. If false,       │
+│   it's incremental per hour.                                                 │
+│       #[serde(default = "default_true")]                                     │
+│       pub is_cumulative: bool,                                               │
+│   }                                                                          │
+│                                                                              │
+│   fn default_true() -> bool {                                                │
+│       true                                                                   │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Overnight Rate (giá qua đêm)                                            │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// Configuration for overnight-rate billing.                              │
+│   ///                                                                        │
+│   /// Overnight = guest checks in within the overnight window (e.g.,         │
+│   21:00) and                                                                 │
+│   /// checks out before the checkout deadline (e.g., 12:00 next day).        │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct OvernightRate {                                                 │
+│       /// Base price for one overnight stay (VND)                            │
+│       pub base_price: Decimal,                                               │
+│       /// Earliest check-in time for overnight rate (e.g., 21:00)            │
+│       pub checkin_start: NaiveTime,                                          │
+│       /// Latest checkout time (e.g., 12:00 next day — represented as time   │
+│   only)                                                                      │
+│       pub checkout_deadline: NaiveTime,                                      │
+│       /// Surcharge steps for late checkout (quá giờ trả phòng qua đêm)      │
+│       #[serde(default)]                                                      │
+│       pub late_checkout_steps: Vec<SurchargeStep>,                           │
+│       /// Surcharge steps for early check-in (vào trước giờ qua đêm)         │
+│       #[serde(default)]                                                      │
+│       pub early_checkin_steps: Vec<SurchargeStep>,                           │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Daily Rate (giá theo ngày)                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// Configuration for daily-rate (per-night) billing.                      │
+│   ///                                                                        │
+│   /// Standard hotel daily rate: check-in at `checkin_time`, checkout at     │
+│   `checkout_time`.                                                           │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct DailyRate {                                                     │
+│       /// Base price per night (VND)                                         │
+│       pub base_price: Decimal,                                               │
+│       /// Standard check-in time (e.g., 14:00)                               │
+│       pub checkin_time: NaiveTime,                                           │
+│       /// Standard checkout time (e.g., 12:00)                               │
+│       pub checkout_time: NaiveTime,                                          │
+│       /// Surcharge steps for late checkout (quá giờ trả phòng theo ngày)    │
+│       #[serde(default)]                                                      │
+│       pub late_checkout_steps: Vec<SurchargeStep>,                           │
+│       /// Surcharge steps for early check-in (vào trước giờ nhận phòng       │
+│   theo ngày)                                                                 │
+│       #[serde(default)]                                                      │
+│       pub early_checkin_steps: Vec<SurchargeStep>,                           │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Monthly Rate (giá theo tháng)                                           │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// Configuration for monthly-rate billing (trọn gói tháng).               │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct MonthlyRate {                                                   │
+│       /// Flat monthly price (VND)                                           │
+│       pub base_price: Decimal,                                               │
+│       /// Whether partial months are prorated daily                          │
+│       #[serde(default)]                                                      │
+│       pub prorate_partial: bool,                                             │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Extra Person Surcharge                                                  │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// Surcharge when the number of guests exceeds the room's max             │
+│   occupancy.                                                                 │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct ExtraPersonSurcharge {                                          │
+│       /// Max occupancy before surcharge kicks in                            │
+│       pub max_occupancy: u32,                                                │
+│       /// Surcharge per extra person per night/stay (VND)                    │
+│       pub per_person: Decimal,                                               │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Rate Plan (Bảng giá loại phòng)                                         │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// A complete rate plan for a room type.                                  │
+│   ///                                                                        │
+│   /// Contains all pricing configurations: hourly, overnight, daily,         │
+│   monthly,                                                                   │
+│   /// and associated surcharge rules. This is the central configuration      │
+│   entity.                                                                    │
+│   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]                 │
+│   pub struct RatePlan {                                                      │
+│       /// Unique identifier for this rate plan                               │
+│       pub id: String,                                                        │
+│       /// Room type name (e.g., "Phòng Đơn", "Phòng VIP")                    │
+│       pub room_type: String,                                                 │
+│       /// Optional description                                               │
+│       #[serde(default)]                                                      │
+│       pub description: Option<String>,                                       │
+│                                                                              │
+│       /// Hourly rate configuration (None if hourly billing not supported)   │
+│       #[serde(default)]                                                      │
+│       pub hourly: Option<HourlyRate>,                                        │
+│       /// Overnight rate configuration (None if overnight billing not        │
+│   supported)                                                                 │
+│       #[serde(default)]                                                      │
+│       pub overnight: Option<OvernightRate>,                                  │
+│       /// Daily rate configuration (None if daily billing not supported)     │
+│       #[serde(default)]                                                      │
+│       pub daily: Option<DailyRate>,                                          │
+│       /// Monthly rate configuration (None if monthly billing not            │
+│   supported)                                                                 │
+│       #[serde(default)]                                                      │
+│       pub monthly: Option<MonthlyRate>,                                      │
+│                                                                              │
+│       /// Extra person surcharge configuration                               │
+│       #[serde(default)]                                                      │
+│       pub extra_person: Option<ExtraPersonSurcharge>,                        │
+│                                                                              │
+│       /// Currency code (default: "VND")                                     │
+│       #[serde(default = "default_currency")]                                 │
+│       pub currency: String,                                                  │
+│   }                                                                          │
+│                                                                              │
+│   fn default_currency() -> String {                                          │
+│       "VND".to_string()                                                      │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // CalcInput (Đầu vào tính giá)                                            │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// Input parameters for the pricing calculation engine.                   │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct CalcInput {                                                     │
+│       /// The rate plan ID to use for calculation                            │
+│       pub rate_plan_id: String,                                              │
+│       /// Actual check-in datetime                                           │
+│       pub checkin: NaiveDateTime,                                            │
+│       /// Actual checkout datetime                                           │
+│       pub checkout: NaiveDateTime,                                           │
+│       /// Number of guests in the room                                       │
+│       pub guest_count: u32,                                                  │
+│       /// Force a specific billing mode (None = auto-detect based on         │
+│   duration)                                                                  │
+│       #[serde(default)]                                                      │
+│       pub force_mode: Option<BillingMode>,                                   │
+│       /// Discount percentage (0-100), applied after calculation             │
+│       #[serde(default)]                                                      │
+│       pub discount_percent: Option<Decimal>,                                 │
+│       /// Whether discount applies only to room charge (not services)        │
+│       #[serde(default)]                                                      │
+│       pub discount_room_only: bool,                                          │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // CalcOutput (Kết quả tính giá)                                           │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   /// A single line item in the calculation breakdown.                       │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct CalcLineItem {                                                  │
+│       /// Description of this charge (e.g., "Giá theo giờ (3h)", "Phụ trội   │
+│   quá giờ")                                                                  │
+│       pub description: String,                                               │
+│       /// The charge amount in VND                                           │
+│       pub amount: Decimal,                                                   │
+│       /// Category for grouping                                              │
+│       pub category: LineItemCategory,                                        │
+│   }                                                                          │
+│                                                                              │
+│   /// Category of a line item for display/grouping.                          │
+│   #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]       │
+│   #[serde(rename_all = "snake_case")]                                        │
+│   pub enum LineItemCategory {                                                │
+│       /// Base room charge                                                   │
+│       RoomCharge,                                                            │
+│       /// Surcharge (late checkout, early checkin, extra person)             │
+│       Surcharge,                                                             │
+│       /// Discount (negative amount)                                         │
+│       Discount,                                                              │
+│   }                                                                          │
+│                                                                              │
+│   /// Output of the pricing calculation engine.                              │
+│   #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]             │
+│   pub struct CalcOutput {                                                    │
+│       /// The billing mode that was used                                     │
+│       pub mode: BillingMode,                                                 │
+│       /// Total duration of stay in minutes                                  │
+│       pub duration_minutes: u64,                                             │
+│       /// Number of billable units (hours for hourly, nights for             │
+│   daily/overnight, months for monthly)                                       │
+│       pub billable_units: u32,                                               │
+│       /// Detailed breakdown of charges                                      │
+│       pub line_items: Vec<CalcLineItem>,                                     │
+│       /// Subtotal before discount (VND)                                     │
+│       pub subtotal: Decimal,                                                 │
+│       /// Discount amount (VND, positive number)                             │
+│       pub discount: Decimal,                                                 │
+│       /// Grand total after discount (VND)                                   │
+│       pub total: Decimal,                                                    │
+│       /// Currency code                                                      │
+│       pub currency: String,                                                  │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Impl blocks                                                             │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   impl RatePlan {                                                            │
+│       /// Create a new empty rate plan with just an ID and room type.        │
+│       pub fn new(id: impl Into<String>, room_type: impl Into<String>) ->     │
+│   Self {                                                                     │
+│           Self {                                                             │
+│               id: id.into(),                                                 │
+│               room_type: room_type.into(),                                   │
+│               description: None,                                             │
+│               hourly: None,                                                  │
+│               overnight: None,                                               │
+│               daily: None,                                                   │
+│               monthly: None,                                                 │
+│               extra_person: None,                                            │
+│               currency: default_currency(),                                  │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       /// Returns which billing modes are configured for this rate plan.     │
+│       pub fn available_modes(&self) -> Vec<BillingMode> {                    │
+│           let mut modes = Vec::new();                                        │
+│           if self.hourly.is_some() {                                         │
+│               modes.push(BillingMode::Hourly);                               │
+│           }                                                                  │
+│           if self.overnight.is_some() {                                      │
+│               modes.push(BillingMode::Overnight);                            │
+│           }                                                                  │
+│           if self.daily.is_some() {                                          │
+│               modes.push(BillingMode::Daily);                                │
+│           }                                                                  │
+│           if self.monthly.is_some() {                                        │
+│               modes.push(BillingMode::Monthly);                              │
+│           }                                                                  │
+│           modes                                                              │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   impl CalcOutput {                                                          │
+│       /// Create a new empty CalcOutput.                                     │
+│       pub fn new(mode: BillingMode, currency: impl Into<String>) -> Self {   │
+│           Self {                                                             │
+│               mode,                                                          │
+│               duration_minutes: 0,                                           │
+│               billable_units: 0,                                             │
+│               line_items: Vec::new(),                                        │
+│               subtotal: Decimal::ZERO,                                       │
+│               discount: Decimal::ZERO,                                       │
+│               total: Decimal::ZERO,                                          │
+│               currency: currency.into(),                                     │
+│           }                                                                  │
+│       }                                                                      │
+│                                                                              │
+│       /// Add a line item and update subtotal.                               │
+│       pub fn add_line_item(&mut self, item: CalcLineItem) {                  │
+│           match item.category {                                              │
+│               LineItemCategory::Discount => {                                │
+│                   self.discount += item.amount.abs();                        │
+│               }                                                              │
+│               _ => {                                                         │
+│                   self.subtotal += item.amount;                              │
+│               }                                                              │
+│           }                                                                  │
+│           self.line_items.push(item);                                        │
+│           self.total = self.subtotal - self.discount;                        │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   impl SurchargeStep {                                                       │
+│       /// Check if a given number of overtime minutes falls within this      │
+│   step.                                                                      │
+│       pub fn matches(&self, minutes: u32) -> bool {                          │
+│           let above_lower = minutes >= self.from_minutes;                    │
+│           let below_upper = match self.to_minutes {                          │
+│               Some(upper) => minutes < upper,                                │
+│               None => true, // open-ended                                    │
+│           };                                                                 │
+│           above_lower && below_upper                                         │
+│       }                                                                      │
+│                                                                              │
+│       /// Calculate the surcharge amount given the base rate (used when      │
+│   kind is Percent).                                                          │
+│       pub fn calculate(&self, base_rate: Decimal) -> Decimal {               │
+│           match self.kind {                                                  │
+│               SurchargeKind::Fixed => self.amount,                           │
+│               SurchargeKind::Percent => {                                    │
+│                   (base_rate * self.amount) / Decimal::from(100)             │
+│               }                                                              │
+│           }                                                                  │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│   // Tests                                                                   │
+│   //                                                                         │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   ─────                                                                      │
+│                                                                              │
+│   #[cfg(test)]                                                               │
+│   mod tests {                                                                │
+│       use super::*;                                                          │
+│       use rust_decimal_macros::dec;                                          │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_surcharge_step_matches() {                                     │
+│           let step = SurchargeStep {                                         │
+│               from_minutes: 0,                                               │
+│               to_minutes: Some(60),                                          │
+│               kind: SurchargeKind::Fixed,                                    │
+│               amount: dec!(30000),                                           │
+│           };                                                                 │
+│           assert!(step.matches(0));                                          │
+│           assert!(step.matches(30));                                         │
+│           assert!(step.matches(59));                                         │
+│           assert!(!step.matches(60));                                        │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_surcharge_step_open_ended() {                                  │
+│           let step = SurchargeStep {                                         │
+│               from_minutes: 120,                                             │
+│               to_minutes: None,                                              │
+│               kind: SurchargeKind::Percent,                                  │
+│               amount: dec!(50),                                              │
+│           };                                                                 │
+│           assert!(!step.matches(60));                                        │
+│           assert!(step.matches(120));                                        │
+│           assert!(step.matches(9999));                                       │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_surcharge_calculate_fixed() {                                  │
+│           let step = SurchargeStep {                                         │
+│               from_minutes: 0,                                               │
+│               to_minutes: Some(60),                                          │
+│               kind: SurchargeKind::Fixed,                                    │
+│               amount: dec!(50000),                                           │
+│           };                                                                 │
+│           let result = step.calculate(dec!(200000));                         │
+│           assert_eq!(result, dec!(50000));                                   │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_surcharge_calculate_percent() {                                │
+│           let step = SurchargeStep {                                         │
+│               from_minutes: 60,                                              │
+│               to_minutes: None,                                              │
+│               kind: SurchargeKind::Percent,                                  │
+│               amount: dec!(25),                                              │
+│           };                                                                 │
+│           // 25% of 200,000 = 50,000                                         │
+│           let result = step.calculate(dec!(200000));                         │
+│           assert_eq!(result, dec!(50000));                                   │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_rate_plan_available_modes() {                                  │
+│           let mut plan = RatePlan::new("rp-001", "Phòng Đơn");               │
+│           assert!(plan.available_modes().is_empty());                        │
+│                                                                              │
+│           plan.hourly = Some(HourlyRate {                                    │
+│               tiers: vec![HourlyRateTier {                                   │
+│                   hour: 1,                                                   │
+│                   price: dec!(100000),                                       │
+│               }],                                                            │
+│               max_hours: 4,                                                  │
+│               is_cumulative: true,                                           │
+│           });                                                                │
+│           plan.overnight = Some(OvernightRate {                              │
+│               base_price: dec!(250000),                                      │
+│               checkin_start: NaiveTime::from_hms_opt(21, 0, 0).unwrap(),     │
+│               checkout_deadline: NaiveTime::from_hms_opt(12, 0,              │
+│   0).unwrap(),                                                               │
+│               late_checkout_steps: vec![],                                   │
+│               early_checkin_steps: vec![],                                   │
+│           });                                                                │
+│                                                                              │
+│           let modes = plan.available_modes();                                │
+│           assert_eq!(modes.len(), 2);                                        │
+│           assert!(modes.contains(&BillingMode::Hourly));                     │
+│           assert!(modes.contains(&BillingMode::Overnight));                  │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_calc_output_add_line_items() {                                 │
+│           let mut output = CalcOutput::new(BillingMode::Hourly, "VND");      │
+│                                                                              │
+│           output.add_line_item(CalcLineItem {                                │
+│               description: "Giá theo giờ (3h)".to_string(),                  │
+│               amount: dec!(150000),                                          │
+│               category: LineItemCategory::RoomCharge,                        │
+│           });                                                                │
+│           output.add_line_item(CalcLineItem {                                │
+│               description: "Phụ trội quá giờ (30 phút)".to_string(),         │
+│               amount: dec!(30000),                                           │
+│               category: LineItemCategory::Surcharge,                         │
+│           });                                                                │
+│           output.add_line_item(CalcLineItem {                                │
+│               description: "Giảm giá 10%".to_string(),                       │
+│               amount: dec!(-18000),                                          │
+│               category: LineItemCategory::Discount,                          │
+│           });                                                                │
+│                                                                              │
+│           assert_eq!(output.subtotal, dec!(180000));                         │
+│           assert_eq!(output.discount, dec!(18000));                          │
+│           assert_eq!(output.total, dec!(162000));                            │
+│           assert_eq!(output.line_items.len(), 3);                            │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_rate_plan_serialization() {                                    │
+│           let plan = RatePlan {                                              │
+│               id: "rp-vip-01".to_string(),                                   │
+│               room_type: "Phòng VIP".to_string(),                            │
+│               description: Some("Phòng VIP tầng cao".to_string()),           │
+│               hourly: Some(HourlyRate {                                      │
+│                   tiers: vec![                                               │
+│                       HourlyRateTier { hour: 1, price: dec!(150000) },       │
+│                       HourlyRateTier { hour: 2, price: dec!(200000) },       │
+│                       HourlyRateTier { hour: 3, price: dec!(250000) },       │
+│                       HourlyRateTier { hour: 4, price: dec!(300000) },       │
+│                   ],                                                         │
+│                   max_hours: 4,                                              │
+│                   is_cumulative: true,                                       │
+│               }),                                                            │
+│               overnight: Some(OvernightRate {                                │
+│                   base_price: dec!(350000),                                  │
+│                   checkin_start: NaiveTime::from_hms_opt(21, 0,              │
+│   0).unwrap(),                                                               │
+│                   checkout_deadline: NaiveTime::from_hms_opt(12, 0,          │
+│   0).unwrap(),                                                               │
+│                   late_checkout_steps: vec![                                 │
+│                       SurchargeStep {                                        │
+│                           from_minutes: 0,                                   │
+│                           to_minutes: Some(60),                              │
+│                           kind: SurchargeKind::Fixed,                        │
+│                           amount: dec!(30000),                               │
+│                       },                                                     │
+│                       SurchargeStep {                                        │
+│                           from_minutes: 60,                                  │
+│                           to_minutes: Some(120),                             │
+│                           kind: SurchargeKind::Fixed,                        │
+│                           amount: dec!(50000),                               │
+│                       },                                                     │
+│                       SurchargeStep {                                        │
+│                           from_minutes: 120,                                 │
+│                           to_minutes: None,                                  │
+│                           kind: SurchargeKind::Percent,                      │
+│                           amount: dec!(100), // 100% = charge full daily     │
+│   rate                                                                       │
+│                       },                                                     │
+│                   ],                                                         │
+│                   early_checkin_steps: vec![],                               │
+│               }),                                                            │
+│               daily: Some(DailyRate {                                        │
+│                   base_price: dec!(450000),                                  │
+│                   checkin_time: NaiveTime::from_hms_opt(14, 0,               │
+│   0).unwrap(),                                                               │
+│                   checkout_time: NaiveTime::from_hms_opt(12, 0,              │
+│   0).unwrap(),                                                               │
+│                   late_checkout_steps: vec![                                 │
+│                       SurchargeStep {                                        │
+│                           from_minutes: 0,                                   │
+│                           to_minutes: Some(60),                              │
+│                           kind: SurchargeKind::Fixed,                        │
+│                           amount: dec!(50000),                               │
+│                       },                                                     │
+│                       SurchargeStep {                                        │
+│                           from_minutes: 60,                                  │
+│                           to_minutes: Some(180),                             │
+│                           kind: SurchargeKind::Percent,                      │
+│                           amount: dec!(50),                                  │
+│                       },                                                     │
+│                       SurchargeStep {                                        │
+│                           from_minutes: 180,                                 │
+│                           to_minutes: None,                                  │
+│                           kind: SurchargeKind::Percent,                      │
+│                           amount: dec!(100),                                 │
+│                       },                                                     │
+│                   ],                                                         │
+│                   early_checkin_steps: vec![],                               │
+│               }),                                                            │
+│               monthly: Some(MonthlyRate {                                    │
+│                   base_price: dec!(6000000),                                 │
+│                   prorate_partial: true,                                     │
+│               }),                                                            │
+│               extra_person: Some(ExtraPersonSurcharge {                      │
+│                   max_occupancy: 2,                                          │
+│                   per_person: dec!(100000),                                  │
+│               }),                                                            │
+│               currency: "VND".to_string(),                                   │
+│           };                                                                 │
+│                                                                              │
+│           let json = serde_json::to_string_pretty(&plan).unwrap();           │
+│           let deserialized: RatePlan =                                       │
+│   serde_json::from_str(&json).unwrap();                                      │
+│           assert_eq!(plan, deserialized);                                    │
+│       }                                                                      │
+│                                                                              │
+│       #[test]                                                                │
+│       fn test_calc_input_deserialization() {                                 │
+│           let json = r#"{                                                    │
+│               "rate_plan_id": "rp-001",                                      │
+│               "checkin": "2025-03-15T14:30:00",                              │
+│               "checkout": "2025-03-16T11:00:00",                             │
+│               "guest_count": 2                                               │
+│           }"#;                                                               │
+│                                                                              │
+│           let input: CalcInput = serde_json::from_str(json).unwrap();        │
+│           assert_eq!(input.rate_plan_id, "rp-001");                          │
+│           assert_eq!(input.guest_count, 2);                                  │
+│           assert_eq!(input.force_mode, None);                                │
+│           assert_eq!(input.discount_percent, None);                          │
+│           assert!(!input.discount_room_only);                                │
+│       }                                                                      │
+│   }                                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Module Declaration — src-tauri/crates/pricing/src/lib.rs                    │
+│                                                                              │
+│                                                                              │
+│   //! CapyInn Pricing Engine VN                                              │
+│   //!                                                                        │
+│   //! Rust-native pricing calculation engine ported from SkyHotel logic.     │
+│   //! Supports: hourly, overnight, daily, monthly billing with tiered        │
+│   surcharges.                                                                │
+│                                                                              │
+│   pub mod types;                                                             │
+│                                                                              │
+│   // Re-export all domain types at crate root for convenience                │
+│   pub use types::*;                                                          │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Cargo.toml — src-tauri/crates/pricing/Cargo.toml                            │
+│                                                                              │
+│                                                                              │
+│   [package]                                                                  │
+│   name = "pricing"                                                           │
+│   version = "0.1.0"                                                          │
+│   edition = "2021"                                                           │
+│   description = "CapyInn Pricing Engine VN - Hotel room pricing              │
+│   calculation"                                                               │
+│   license = "MIT"                                                            │
+│                                                                              │
+│   [dependencies]                                                             │
+│   chrono = { version = "0.4", features = ["serde"] }                         │
+│   rust_decimal = { version = "1.36", features = ["serde-with-str"] }         │
+│   serde = { version = "1.0", features = ["derive"] }                         │
+│   serde_json = "1.0"                                                         │
+│                                                                              │
+│   [dev-dependencies]                                                         │
+│   rust_decimal_macros = "1.36"                                               │
+│   serde_json = "1.0"                                                         │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Hướng dẫn gắn code (Integration Guide)                                      │
+│                                                                              │
+│  1. Tạo crate structure:                                                     │
+│                                                                              │
+│                                                                              │
+│   mkdir -p src-tauri/crates/pricing/src                                      │
+│                                                                              │
+│                                                                              │
+│  2. Tạo files:                                                               │
+│                                                                              │
+│                                                                              │
+│   File                                   Nội dung                            │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   src-tauri/crates/pricing/Cargo.toml    Cargo manifest ở trên               │
+│   src-tauri/crates/pricing/src/lib.rs    Module declaration ở trên           │
+│   src-tauri/crates/pricing/src/types.rs  Domain types (file code lớn nhất)   │
+│                                                                              │
+│                                                                              │
+│  3. Thêm vào workspace — Sửa src-tauri/Cargo.toml (workspace root):          │
+│                                                                              │
+│                                                                              │
+│   [workspace]                                                                │
+│   members = [                                                                │
+│       ".",                                                                   │
+│       "crates/pricing",                                                      │
+│   ]                                                                          │
+│                                                                              │
+│   [dependencies]                                                             │
+│   pricing = { path = "crates/pricing" }                                      │
+│                                                                              │
+│                                                                              │
+│  4. Chạy tests:                                                              │
+│                                                                              │
+│                                                                              │
+│   cd src-tauri/crates/pricing                                                │
+│   cargo test                                                                 │
+│                                                                              │
+│                                                                              │
+│  Expected output:                                                            │
+│                                                                              │
+│                                                                              │
+│   running 6 tests                                                            │
+│   test types::tests::test_surcharge_step_matches ... ok                      │
+│   test types::tests::test_surcharge_step_open_ended ... ok                   │
+│   test types::tests::test_surcharge_calculate_fixed ... ok                   │
+│   test types::tests::test_surcharge_calculate_percent ... ok                 │
+│   test types::tests::test_rate_plan_available_modes ... ok                   │
+│   test types::tests::test_calc_output_add_line_items ... ok                  │
+│   test types::tests::test_rate_plan_serialization ... ok                     │
+│   test types::tests::test_calc_input_deserialization ... ok                  │
+│                                                                              │
+│                                                                              │
+│  --------------------------------------------------------------------------  │
+│                                                                              │
+│  Tóm tắt nghiệp vụ đã mô hình hóa                                            │
+│                                                                              │
+│                                                                              │
+│   Domain Type    Vai trò                                                     │
+│   ────────────────────────────────────────────────────────────────────────   │
+│   RatePlan       Bảng giá hoàn chỉnh cho 1 loại phòng — chứa tất cả chế độ   │
+│                  tính tiền                                                   │
+│   SurchargeStep  Một bậc trong bảng phụ trội (quá giờ/vào sớm) — hỗ trợ      │
+│                  fixed VND hoặc %                                            │
+│   HourlyRate     Cấu hình giá theo giờ bậc thang (giờ 1 = X, giờ 2 = Y...)   │
+│   OvernightRate  Giá qua đêm + khung giờ checkin/checkout + phụ trội         │
+│   DailyRate      Giá theo ngày + khung giờ + phụ trội late/early             │
+│   MonthlyRate    Giá trọn gói tháng + prorate                                │
+│   CalcInput      Đầu vào tính giá: thời gian CI/CO, số khách, mode,          │
+│                  discount                                                    │
+│   CalcOutput     Kết quả: mode đã dùng, breakdown line items, subtotal,      │
+│                  discount, total                                             │
+│                                                                              │
+│                                                                              │
+│  Các type này sẵn sàng cho task tiếp theo (2.3 — Calculation Engine logic)   │
+│  sẽ nhận CalcInput + RatePlan → trả về CalcOutput.                           │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

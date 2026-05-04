@@ -268,8 +268,18 @@ pub fn run() {
             commands::pricing::get_pricing_rules,
             commands::pricing::save_pricing_rule,
             commands::pricing::calculate_price_preview,
+            commands::pricing::get_rate_plans,
+            commands::pricing::calculate_price_v2,
+            commands::pricing::pricing_lock,
             commands::pricing::get_special_dates,
             commands::pricing::save_special_date,
+            // Pricing Engine V2 CRUD
+            commands::pricing::rate_plan_upsert,
+            commands::pricing::rate_plan_delete,
+            commands::pricing::rate_plan_copy,
+            commands::pricing::dynamic_rule_list,
+            commands::pricing::dynamic_rule_upsert,
+            commands::pricing::dynamic_rule_delete,
             // Folio/Billing
             commands::billing::add_folio_line,
             commands::billing::record_payment,

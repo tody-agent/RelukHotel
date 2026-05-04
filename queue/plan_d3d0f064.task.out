@@ -1,0 +1,60 @@
+Using model: GPT-5.4
+
+╭────────────────────────────────── GPT-5.4 ───────────────────────────────────╮
+│                                                                              │
+│  Mình sẽ kiểm tra trực tiếp cấu trúc code trong repo để patch đúng pattern   │
+│  hiện có, rồi sửa pricing.rs, lib.rs, và chạy test gate theo AGENTS.md.Mình  │
+│  cần đọc đúng file trong repo local. Hiện tool không đọc được file://, nên   │
+│  hãy dán nội dung các file này để mình patch chính xác theo codebase hiện    │
+│  có:                                                                         │
+│                                                                              │
+│   1 mhm/src-tauri/src/commands/pricing.rs                                    │
+│   2 mhm/src-tauri/src/lib.rs                                                 │
+│   3 Nếu có thể thêm:                                                         │
+│      • mhm/src-tauri/src/state.rs hoặc nơi định nghĩa AppState               │
+│      • mhm/src-tauri/crates/pricing/src/lib.rs                               │
+│      • mhm/src-tauri/crates/pricing/src/stay.rs                              │
+│      • file command pricing hiện đang load DB/preview để mình bám đúng       │
+│        helper pattern                                                        │
+│                                                                              │
+│  Ngay khi có nội dung, mình sẽ trả lại:                                      │
+│                                                                              │
+│   • code hoàn chỉnh cho pricing_lock                                         │
+│   • phần đăng ký trong invoke_handler                                        │
+│   • nếu cần, test liên quan theo AGENTS.md. Mình cần đọc đúng code hiện có   │
+│     trong repo trước khi trả “CODE hoàn chỉnh”, vì task này phụ thuộc mạnh   │
+│     vào:                                                                     │
+│   • kiểu AppState                                                            │
+│   • cách lấy SqlitePool/DB connection                                        │
+│   • kiểu RatePlan, CalcInput, DynamicRule                                    │
+│   • pattern parse JSON/ULID/date trong pricing.rs                            │
+│   • cách lib.rs đang register command                                        │
+│                                                                              │
+│  Hiện tại mình chưa thể truy cập trực tiếp file local                        │
+│  /Volumes/Data/Hotel/CapyInn/mhm từ tool, nên nếu mình tự bịa code thì rất   │
+│  dễ sai compile.                                                             │
+│                                                                              │
+│  Vui lòng dán nguyên văn các file sau:                                       │
+│                                                                              │
+│  Bắt buộc                                                                    │
+│                                                                              │
+│   • mhm/src-tauri/src/commands/pricing.rs                                    │
+│   • mhm/src-tauri/src/lib.rs                                                 │
+│                                                                              │
+│  Rất nên có                                                                  │
+│                                                                              │
+│   • file định nghĩa AppState                                                 │
+│   • mhm/src-tauri/crates/pricing/src/stay.rs                                 │
+│   • mhm/src-tauri/crates/pricing/src/lib.rs                                  │
+│   • nếu có: mhm/src-tauri/crates/pricing/src/rate_plan.rs                    │
+│   • nếu có sẵn command preview: phần pricing_preview trong pricing.rs        │
+│                                                                              │
+│  Sau đó mình sẽ trả ngay theo đúng yêu cầu:                                  │
+│                                                                              │
+│   • ghi rõ file path cần sửa                                                 │
+│   • CODE hoàn chỉnh, không TODO                                              │
+│   • bám đúng pattern codebase                                                │
+│   • gồm cả pricing_lock(...) và đăng ký trong lib.rs                         │
+│   • nếu cần sẽ kèm test/update test theo AGENTS.md                           │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
