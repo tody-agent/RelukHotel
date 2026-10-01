@@ -88,4 +88,4 @@ export function sourceLabel(source: string): string {
 export const EXCEL_WARNING_HEAD =
   "Không mở/sửa file này bằng Excel trước khi upload.";
 export const EXCEL_WARNING_BODY =
-  "Excel sẽ làm mất số 0 đầu của số giấy tờ và đổi định dạng ngày. Cần sửa thì sửa trong CapyInn rồi xuất lại.";
+  "Excel sẽ làm mất số 0 đầu của số giấy tờ và đổi định dạng ngày. Cần sửa thì sửa trong RelukHotel rồi xuất lại.";

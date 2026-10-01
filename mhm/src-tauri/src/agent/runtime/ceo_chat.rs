@@ -22,7 +22,7 @@ pub const CEO_TOOL_LOOP_MAX_ITERATIONS: usize = 4;
 pub const DATA_UNAVAILABLE_MESSAGE: &str =
     "Không có đủ dữ liệu PMS được phép để trả lời câu hỏi này.";
 
-const CEO_CHAT_SYSTEM_PROMPT: &str = "You are CapyInn CEO Secretary. Answer in Vietnamese. Use only provided CEO PMS read tools for PMS facts. If no allowed tool result supports an answer, say data is unavailable.";
+const CEO_CHAT_SYSTEM_PROMPT: &str = "You are RelukHotel CEO Secretary. Answer in Vietnamese. Use only provided CEO PMS read tools for PMS facts. If no allowed tool result supports an answer, say data is unavailable.";
 
 #[derive(Debug, Clone)]
 pub struct CeoChatMessage {

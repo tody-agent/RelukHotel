@@ -12,14 +12,14 @@ import {
 } from "./appIdentity";
 
 describe("appIdentity", () => {
-  it("exports the CapyInn app identity constants", () => {
-    expect(APP_NAME).toBe("CapyInn");
-    expect(APP_LOGO_ALT).toBe("CapyInn logo");
-    expect(EXPORT_PREFIX).toBe("CapyInn");
-    expect(ONBOARDING_DRAFT_KEY).toBe("capyinn-onboarding-draft");
-    expect(APP_API_KEY_PREFIX).toBe("capyinn_sk_");
-    expect(APP_RUNTIME_DIR).toBe("CapyInn");
-    expect(APP_DATABASE_FILENAME).toBe("capyinn.db");
-    expect(APP_BUNDLE_IDENTIFIER).toBe("io.capyinn.app");
+  it("exports the RelukHotel app identity constants", () => {
+    expect(APP_NAME).toBe("RelukHotel");
+    expect(APP_LOGO_ALT).toBe("RelukHotel logo");
+    expect(EXPORT_PREFIX).toBe("RelukHotel");
+    expect(ONBOARDING_DRAFT_KEY).toBe("relukhotel-onboarding-draft");
+    expect(APP_API_KEY_PREFIX).toBe("reluk_sk_");
+    expect(APP_RUNTIME_DIR).toBe("RelukHotel");
+    expect(APP_DATABASE_FILENAME).toBe("relukhotel.db");
+    expect(APP_BUNDLE_IDENTIFIER).toBe("io.relukhotel.app");
   });
 });

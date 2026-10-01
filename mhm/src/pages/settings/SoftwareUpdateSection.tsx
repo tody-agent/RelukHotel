@@ -13,7 +13,7 @@ export default function SoftwareUpdateSection() {
     <div className="space-y-6 max-w-lg">
       <div>
         <h3 className="text-lg font-bold mb-1">Software Update</h3>
-        <p className="text-sm text-brand-muted">Kiểm tra và áp dụng bản CapyInn mới.</p>
+        <p className="text-sm text-brand-muted">Kiểm tra và áp dụng bản RelukHotel mới.</p>
       </div>
 
       <div className="space-y-3 p-4 bg-slate-50 rounded-xl">

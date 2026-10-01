@@ -16,8 +16,8 @@ const TELEGRAM_HTTP_TIMEOUT_SECONDS: u64 = 35;
 const TELEGRAM_MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 const OWNER_DENIAL_PREFIX: &str = "Telegram ID ";
 const OWNER_DENIAL_SUFFIX: &str =
-    " is not paired with CapyInn CEO Chat. Ask an admin to bind this numeric ID.";
-const MISSING_SENDER_DENIAL: &str = "Telegram sender is not paired with CapyInn CEO Chat. Ask an admin to bind this numeric ID once Telegram provides it.";
+    " is not paired with RelukHotel CEO Chat. Ask an admin to bind this numeric ID.";
+const MISSING_SENDER_DENIAL: &str = "Telegram sender is not paired with RelukHotel CEO Chat. Ask an admin to bind this numeric ID once Telegram provides it.";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TelegramUpdate {
@@ -593,7 +593,7 @@ mod tests {
         assert_eq!(sent_messages[0].chat_id, 55);
         assert_eq!(
             sent_messages[0].text,
-            "Telegram ID 777 is not paired with CapyInn CEO Chat. Ask an admin to bind this numeric ID."
+            "Telegram ID 777 is not paired with RelukHotel CEO Chat. Ask an admin to bind this numeric ID."
         );
     }
 

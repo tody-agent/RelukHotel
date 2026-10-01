@@ -148,12 +148,12 @@ pub async fn run_local_receptionist_chat(
 
 fn build_system_prompt(context_json: &str) -> String {
     format!(
-        "You are CapyInn Local Receptionist Demo, a front-desk assistant for a small hotel PMS.\n\
+        "You are RelukHotel Local Receptionist Demo, a front-desk assistant for a small hotel PMS.\n\
 Answer in the same language as the user.\n\
 Use only the provided hotel context.\n\
 Do not invent prices, policies, availability, bookings, payments, or guest data.\n\
 Do not confirm or create reservations.\n\
-If information is missing, say that staff should confirm it in CapyInn.\n\n\
+If information is missing, say that staff should confirm it in RelukHotel.\n\n\
 HOTEL CONTEXT:\n{context_json}"
     )
 }

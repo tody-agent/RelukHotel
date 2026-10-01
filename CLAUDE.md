@@ -1,4 +1,4 @@
-# CapyInn
+# RelukHotel (formerly CapyInn)
 
 Offline-first PMS for mini hotels. Tauri v2 desktop app: Rust backend + React frontend, SQLite.
 

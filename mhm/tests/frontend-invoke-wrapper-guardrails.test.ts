@@ -181,7 +181,7 @@ function findRawInvokeOccurrencesInSource(
 
       occurrences.push({
         command,
-        file: relative(process.cwd(), file),
+        file: relative(process.cwd(), file).replace(/\\/g, "/"),
         line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
       });
     }

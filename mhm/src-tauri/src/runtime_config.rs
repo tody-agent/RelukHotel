@@ -2,40 +2,50 @@ use chrono::{DateTime, FixedOffset};
 use std::path::PathBuf;
 
 pub fn env_flag(name: &str) -> bool {
-    matches!(
-        std::env::var(name)
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1" | "true" | "yes" | "on")
-    )
+    let alt_name = if let Some(stripped) = name.strip_prefix("CAPYINN_") {
+        Some(format!("RELUKHOTEL_{stripped}"))
+    } else {
+        name.strip_prefix("RELUKHOTEL_").map(|stripped| format!("CAPYINN_{stripped}"))
+    };
+
+    let check = |var: &str| {
+        matches!(
+            std::env::var(var)
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        )
+    };
+
+    check(name) || alt_name.as_deref().map(check).unwrap_or(false)
 }
 
 pub fn experimental_runtime_enabled() -> bool {
-    env_flag("CAPYINN_EXPERIMENTAL_RUNTIME")
+    env_flag("RELUKHOTEL_EXPERIMENTAL_RUNTIME")
 }
 
 pub fn experimental_gateway_runtime_enabled() -> bool {
-    experimental_runtime_enabled() || env_flag("CAPYINN_EXPERIMENTAL_GATEWAY_RUNTIME")
+    experimental_runtime_enabled() || env_flag("RELUKHOTEL_EXPERIMENTAL_GATEWAY_RUNTIME")
 }
 
 pub fn experimental_agent_runtime_enabled() -> bool {
-    experimental_runtime_enabled() || env_flag("CAPYINN_EXPERIMENTAL_AGENT_RUNTIME")
+    experimental_runtime_enabled() || env_flag("RELUKHOTEL_EXPERIMENTAL_AGENT_RUNTIME")
 }
 
 #[allow(dead_code)]
 pub fn experimental_peripheral_runtime_enabled() -> bool {
-    experimental_runtime_enabled() || env_flag("CAPYINN_EXPERIMENTAL_PERIPHERAL_RUNTIME")
+    experimental_runtime_enabled() || env_flag("RELUKHOTEL_EXPERIMENTAL_PERIPHERAL_RUNTIME")
 }
 
 pub fn gateway_runtime_disabled_by_override() -> bool {
-    env_flag("CAPYINN_DISABLE_GATEWAY")
+    env_flag("RELUKHOTEL_DISABLE_GATEWAY")
 }
 
 pub fn agent_runtime_disabled_by_override() -> bool {
-    env_flag("CAPYINN_DISABLE_CEO_TELEGRAM")
+    env_flag("RELUKHOTEL_DISABLE_CEO_TELEGRAM")
 }
 
 pub fn effective_experimental_gateway_runtime_enabled() -> bool {
@@ -47,19 +57,22 @@ pub fn effective_experimental_agent_runtime_enabled() -> bool {
 }
 
 pub fn runtime_root_override() -> Option<PathBuf> {
-    std::env::var_os("CAPYINN_RUNTIME_ROOT")
+    std::env::var_os("RELUKHOTEL_RUNTIME_ROOT")
+        .or_else(|| std::env::var_os("CAPYINN_RUNTIME_ROOT"))
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
 }
 
 pub fn test_now() -> Option<DateTime<FixedOffset>> {
-    std::env::var("CAPYINN_TEST_NOW")
+    std::env::var("RELUKHOTEL_TEST_NOW")
+        .or_else(|_| std::env::var("CAPYINN_TEST_NOW"))
         .ok()
         .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
 }
 
 pub fn smoke_ready_file() -> Option<PathBuf> {
-    std::env::var_os("CAPYINN_SMOKE_READY_FILE")
+    std::env::var_os("RELUKHOTEL_SMOKE_READY_FILE")
+        .or_else(|| std::env::var_os("CAPYINN_SMOKE_READY_FILE"))
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
 }

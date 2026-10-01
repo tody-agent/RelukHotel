@@ -120,9 +120,9 @@ fn scrub_runtime_paths(text: &str) -> String {
         scrubbed = scrubbed.replace(runtime_root.as_ref(), "<runtime>");
     }
 
-    let capyinn_root_pattern =
-        Regex::new(r"([A-Za-z]:)?(?:[/\\][^/\s\\]+)*[/\\]CapyInn").expect("valid runtime regex");
-    capyinn_root_pattern
+    let runtime_root_pattern =
+        Regex::new(r"([A-Za-z]:)?(?:[/\\][^/\s\\]+)*[/\\](?:CapyInn|RelukHotel)").expect("valid runtime regex");
+    runtime_root_pattern
         .replace_all(&scrubbed, "<runtime>")
         .into_owned()
 }

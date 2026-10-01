@@ -1,4 +1,4 @@
-# CapyInn — agent instructions
+# RelukHotel — agent instructions
 
 See [CLAUDE.md](CLAUDE.md). It is the single source of truth for this repository's
 conventions, guardrails, and commands, and it applies to any coding agent.

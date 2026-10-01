@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
 };
 
-const KEYCHAIN_SERVICE: &str = "CapyInn CEO Agent";
+const KEYCHAIN_SERVICE: &str = "RelukHotel CEO Agent";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgentSecretKind {

@@ -32,7 +32,7 @@ pub const CEO_DIGEST_TOOL_NAMES: &[&str] = &[
 ];
 
 pub const CEO_DIGEST_SYSTEM_PROMPT: &str =
-    "You are CapyInn CEO Secretary. Write a concise Vietnamese hourly digest from the provided JSON only. Mark unavailable sections clearly. Do not invent PMS facts.";
+    "You are RelukHotel CEO Secretary. Write a concise Vietnamese hourly digest from the provided JSON only. Mark unavailable sections clearly. Do not invent PMS facts.";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DigestDeliveryResult {

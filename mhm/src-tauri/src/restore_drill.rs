@@ -142,9 +142,9 @@ pub async fn run_restore_drill(options: RestoreDrillOptions) -> RestoreDrillRun 
             copied_path: None,
             checks: vec![fail_check(
                 "Runtime root",
-                "cannot find CapyInn runtime root",
+                "cannot find RelukHotel runtime root",
             )],
-            message: "cannot find CapyInn runtime root".to_string(),
+            message: "cannot find RelukHotel runtime root".to_string(),
         };
     };
 
@@ -367,7 +367,7 @@ fn select_newest_managed_backup(runtime_root: &Path) -> Result<ManagedBackup, St
         }
     }
 
-    newest.ok_or_else(|| "no managed CapyInn backup found".to_string())
+    newest.ok_or_else(|| "no managed RelukHotel backup found".to_string())
 }
 
 fn compare_backup(left: (NaiveDateTime, u64, &str), right: (NaiveDateTime, u64, &str)) -> bool {
@@ -1549,7 +1549,7 @@ mod tests {
         // A drill that failed before it could count anything.
         fs::write(
             report_dir.join("restore-drill-20260425_110000.md"),
-            "Status: FAIL\n\n| Backup selection | FAIL | no managed CapyInn backup found |\n",
+            "Status: FAIL\n\n| Backup selection | FAIL | no managed RelukHotel backup found |\n",
         )
         .unwrap();
 

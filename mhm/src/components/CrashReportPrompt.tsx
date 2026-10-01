@@ -25,7 +25,7 @@ export default function CrashReportPrompt({
     <Modal title="App encountered a serious error">
       <div className="space-y-4 text-sm text-brand-muted">
         <p>
-          CapyInn gặp lỗi nghiêm trọng trong phiên trước. Báo cáo này đã được làm sạch dữ liệu
+          RelukHotel gặp lỗi nghiêm trọng trong phiên trước. Báo cáo này đã được làm sạch dữ liệu
           nhạy cảm và không chứa tracking hành vi sử dụng.
         </p>
         <p className="text-xs">Crash type: {report.crash_type}</p>

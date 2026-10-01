@@ -59,7 +59,7 @@ export default function Declaration() {
           Không mở/sửa file này bằng Excel trước khi upload.
         </strong>{" "}
         Excel sẽ làm mất số 0 đầu của số giấy tờ và đổi định dạng ngày.{" "}
-        Cần sửa thì sửa trong CapyInn rồi xuất lại.
+        Cần sửa thì sửa trong RelukHotel rồi xuất lại.
       </div>
 
       <div className="flex gap-2">

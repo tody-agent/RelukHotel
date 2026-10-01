@@ -1441,9 +1441,9 @@ impl ServerHandler for HotelTools {
         caps.tools = Some(ToolsCapability::default());
 
         ServerInfo::new(caps)
-            .with_server_info(Implementation::new("capyinn", "0.1.0"))
+            .with_server_info(Implementation::new("relukhotel", "0.1.0"))
             .with_instructions(
-                "CapyInn MCP Server. Provides tools to query room availability, \
+                "RelukHotel MCP Server. Provides tools to query room availability, \
                  pricing, bookings, and create/modify/cancel reservations. \
                  ALWAYS call get_hotel_context first to get the current date/time.",
             )

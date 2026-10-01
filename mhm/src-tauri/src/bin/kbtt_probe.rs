@@ -9,11 +9,11 @@
 //! KHÔNG in payload thô và KHÔNG in đường dẫn ảnh đầy đủ — đó là dữ liệu cá
 //! nhân (§12.3). Chỉ in tên file và các trường đã parse.
 
-use capyinn_lib::declaration::catalog::Catalog;
-use capyinn_lib::declaration::extractor::{
+use relukhotel_lib::declaration::catalog::Catalog;
+use relukhotel_lib::declaration::extractor::{
     mrz::MrzExtractor, ocr_rs_mrz::OcrRsMrz, qr_cccd::QrCccdExtractor, IdentityExtractor,
 };
-use capyinn_lib::declaration::find_kbtt_resource;
+use relukhotel_lib::declaration::find_kbtt_resource;
 
 /// Xác nhận một bản đã đóng gói thật sự tìm được resource của nó.
 ///

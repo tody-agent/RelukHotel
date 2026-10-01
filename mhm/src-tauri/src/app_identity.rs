@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
-pub const APP_NAME: &str = "CapyInn";
-pub const APP_RUNTIME_DIR: &str = "CapyInn";
-pub const APP_DATABASE_FILENAME: &str = "capyinn.db";
-pub const APP_API_KEY_PREFIX: &str = "capyinn_sk_";
+pub const APP_NAME: &str = "RelukHotel";
+pub const APP_RUNTIME_DIR: &str = "RelukHotel";
+pub const APP_DATABASE_FILENAME: &str = "relukhotel.db";
+pub const APP_API_KEY_PREFIX: &str = "reluk_sk_";
 pub const APP_GATEWAY_LOCKFILE: &str = ".gateway-port";
-pub const APP_BUNDLE_IDENTIFIER: &str = "io.capyinn.app";
+pub const APP_BUNDLE_IDENTIFIER: &str = "io.relukhotel.app";
 
 pub fn runtime_root() -> PathBuf {
     runtime_root_opt().expect("Cannot find home directory")
@@ -93,8 +93,9 @@ mod tests {
     }
 
     #[test]
-    fn uses_capyinn_runtime_names() {
+    fn uses_relukhotel_runtime_names() {
         let _guard = crate::runtime_config::env_lock().lock().unwrap();
+        std::env::remove_var("RELUKHOTEL_RUNTIME_ROOT");
         std::env::remove_var("CAPYINN_RUNTIME_ROOT");
 
         let root = runtime_root();
@@ -121,8 +122,8 @@ mod tests {
             root.join("exports").join("crash-reports")
         );
         assert_eq!(gateway_lockfile(), root.join(APP_GATEWAY_LOCKFILE));
-        assert_eq!(APP_NAME, "CapyInn");
-        assert_eq!(APP_API_KEY_PREFIX, "capyinn_sk_");
-        assert_eq!(APP_BUNDLE_IDENTIFIER, "io.capyinn.app");
+        assert_eq!(APP_NAME, "RelukHotel");
+        assert_eq!(APP_API_KEY_PREFIX, "reluk_sk_");
+        assert_eq!(APP_BUNDLE_IDENTIFIER, "io.relukhotel.app");
     }
 }

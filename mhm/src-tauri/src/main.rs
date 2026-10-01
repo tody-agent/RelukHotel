@@ -4,8 +4,8 @@
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.contains(&"--mcp-stdio".to_string()) {
-        capyinn_lib::run_proxy();
+        relukhotel_lib::run_proxy();
     } else {
-        capyinn_lib::run()
+        relukhotel_lib::run()
     }
 }

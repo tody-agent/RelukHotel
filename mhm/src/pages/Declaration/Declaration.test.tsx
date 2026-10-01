@@ -55,7 +55,7 @@ describe("Declaration page", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Cần sửa thì sửa trong CapyInn rồi xuất lại/i),
+      screen.getByText(/Cần sửa thì sửa trong RelukHotel rồi xuất lại/i),
     ).toBeInTheDocument();
   });
 

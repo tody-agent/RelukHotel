@@ -1,14 +1,14 @@
 <div id="top" align="center">
 
-<img src="mhm/public/app-logo.png" alt="CapyInn logo" width="120">
+<img src="mhm/public/app-logo.png" alt="RelukHotel logo" width="120">
 
-# CapyInn
+# RelukHotel
 
 **Offline-first property management software for mini hotels**
 
 *A desktop PMS for small hotels and guesthouses in Vietnam.*
 
-[![CI](https://img.shields.io/github/actions/workflow/status/chuanman2707/CapyInn/ci.yml?style=for-the-badge&label=CI)](https://github.com/chuanman2707/CapyInn/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/tody-agent/RelukHotel/ci.yml?style=for-the-badge&label=CI)](https://github.com/tody-agent/RelukHotel/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri_2-FFC131?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org)
@@ -19,7 +19,7 @@
 **Property onboarding · Vietnamese ID OCR · Check-in/check-out · Reservations · Night audit**
 
 <p>
-  <a href="#what-capyinn-solves"><strong>Why CapyInn</strong></a> ·
+  <a href="#what-relukhotel-solves"><strong>Why RelukHotel</strong></a> ·
   <a href="#product-demo"><strong>Demo</strong></a> ·
   <a href="#key-features"><strong>Features</strong></a> ·
   <a href="#local-development"><strong>Local development</strong></a> ·
@@ -28,7 +28,7 @@
 
 </div>
 
-![CapyInn dashboard hero](Public/dashboard.png)
+![RelukHotel dashboard hero](Public/dashboard.png)
 
 > Built for mini hotels that need one local app for room status, guest intake, nightly billing, and end-of-day reconciliation.
 
@@ -39,9 +39,9 @@
   <img src="https://img.shields.io/badge/Storage-Local%20SQLite-1D4ED8?style=flat-square" alt="Local SQLite">
 </p>
 
-CapyInn is a desktop app for mini hotels and guesthouses that need a local-first operating tool without relying on a remote backend. The project focuses on real front-desk workflows: room layout setup, faster guest intake, Vietnamese ID OCR, nightly pricing, revenue reporting, and end-of-day reconciliation.
+RelukHotel is a desktop app for mini hotels and guesthouses that need a local-first operating tool without relying on a remote backend. The project focuses on real front-desk workflows: room layout setup, faster guest intake, Vietnamese ID OCR, nightly pricing, revenue reporting, and end-of-day reconciliation.
 
-> Note: `CapyInn` is a clean-slate rename from `MHM`. Current builds use the new runtime root at `~/CapyInn` and do not auto-migrate legacy local data from `~/MHM`.
+> Note: `RelukHotel` is developed from `CapyInn`. Current builds use the runtime root at `~/RelukHotel` (with backward compatibility fallback to `~/CapyInn`).
 
 <details>
 <summary>Table of contents</summary>
@@ -210,8 +210,8 @@ node --version
 ### Clone and run the desktop app
 
 ```bash
-git clone https://github.com/chuanman2707/CapyInn.git
-cd CapyInn/mhm
+git clone https://github.com/tody-agent/RelukHotel.git
+cd RelukHotel/mhm
 npm ci
 npm run tauri dev
 ```
@@ -219,7 +219,7 @@ npm run tauri dev
 ### Build a release bundle
 
 ```bash
-cd CapyInn/mhm
+cd RelukHotel/mhm
 npm run tauri build
 ```
 
@@ -228,7 +228,7 @@ Release bundles are generated under `mhm/src-tauri/target/release/bundle/`.
 ## Verification
 
 ```bash
-cd CapyInn/mhm
+cd RelukHotel/mhm
 npm test
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CapyInn",
+  "productName": "RelukHotel",
   "version": "0.1.7",
-  "identifier": "io.capyinn.app",
+  "identifier": "io.relukhotel.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CapyInn",
+        "title": "RelukHotel",
         "width": 1280,
         "height": 800,
         "minWidth": 1100,
@@ -38,7 +38,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/chuanman2707/CapyInn/releases/latest/download/latest.json"
+        "https://github.com/tody-agent/RelukHotel/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

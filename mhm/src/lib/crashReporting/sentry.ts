@@ -33,7 +33,7 @@ export interface CommandFailureRemoteEvent {
 
 function scrubValue(value: string): string {
   return value
-    .replace(/CapyInn[\\/][^\s]+/g, "<runtime>/...")
+    .replace(/(?:CapyInn|RelukHotel)[\\/][^\s]+/g, "<runtime>/...")
     .replace(/\b\d{9,14}\b/g, "<redacted-number>");
 }
 

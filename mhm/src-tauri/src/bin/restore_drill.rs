@@ -1,4 +1,4 @@
-use capyinn_lib::restore_drill::{run_restore_drill, RestoreDrillOptions};
+use relukhotel_lib::restore_drill::{run_restore_drill, RestoreDrillOptions};
 use std::{env, path::PathBuf};
 
 #[tokio::main]
